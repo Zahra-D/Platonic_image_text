@@ -206,10 +206,15 @@ def main():
                     balanced.append(0.5 * (predicted[positives, column].mean()
                                            + (~predicted[negatives, column]).mean()))
             scores = np.empty(len(items))
+            strict = np.empty(len(items))
             for n, (a, b, flips, signs) in enumerate(items):
-                difference = (test_logits[a - split, flips] - test_logits[b - split, flips]) * signs
+                logit_a, logit_b = test_logits[a - split, flips], test_logits[b - split, flips]
+                difference = (logit_a - logit_b) * signs
+                # pairwise preference: the fact scores higher in the scene where it is true
                 scores[n] = np.where(np.abs(difference) <= 1e-9, 0.5, (difference > 0).astype(float)).mean()
-            return scores, float(np.mean(balanced))
+                # strict: the probe classifies BOTH scenes correctly (true side > 0, false side < 0)
+                strict[n] = ((signs * logit_a > 0) & (signs * logit_b < 0)).astype(float).mean()
+            return scores, strict, float(np.mean(balanced))
 
         if args.per_layer:
             order = ["embedding"]
@@ -219,15 +224,22 @@ def main():
             order = ["last"]
         order = [name for name in order if name in features]
         per_layer = {}
+        strict_rng = np.random.default_rng(args.seed + 17)  # separate stream: existing CIs unchanged
         for name in order:
-            scores, balanced = measure(features[name])
+            scores, strict, balanced = measure(features[name])
             draws = np.asarray([scores[rng.integers(0, len(scores), len(scores))].mean()
                                 for _ in range(args.bootstrap)])
             low, high = np.quantile(draws, (0.025, 0.975))
+            strict_draws = np.asarray([strict[strict_rng.integers(0, len(strict), len(strict))].mean()
+                                       for _ in range(args.bootstrap)])
+            strict_low, strict_high = np.quantile(strict_draws, (0.025, 0.975))
             per_layer[name] = {"binding_accuracy": {"value": float(scores.mean()),
                                                     "ci95": [float(low), float(high)]},
+                               "binding_strict_accuracy": {"value": float(strict.mean()),
+                                                           "ci95": [float(strict_low), float(strict_high)]},
                                "clean_probe_balanced_accuracy": balanced,
-                               "per_pair": [float(x) for x in scores]}
+                               "per_pair": [float(x) for x in scores],
+                               "per_pair_strict": [float(x) for x in strict]}
         # The headline stays the deepest block, so results written before the
         # per-layer option remain directly comparable.
         headline = f"L{len(model.blocks) - 1}" if args.per_layer else "last"
@@ -235,6 +247,7 @@ def main():
         result = {"protocol": {"model": str(path), "pairs": len(items), "probe_train_scenes": split,
                                "per_layer": bool(args.per_layer), "headline_feature": headline},
                   "binding_accuracy": deepest["binding_accuracy"],
+                  "binding_strict_accuracy": deepest["binding_strict_accuracy"],
                   "clean_probe_balanced_accuracy": deepest["clean_probe_balanced_accuracy"],
                   # Per-pair scores, so two models can be compared on the same
                   # items: the paired difference removes the between-item
@@ -245,6 +258,7 @@ def main():
         head = deepest["binding_accuracy"]
         print(f"{label}: binding {100*head['value']:.1f}% "
               f"[{100*head['ci95'][0]:.1f}, {100*head['ci95'][1]:.1f}] "
+              f"| strict {100*deepest['binding_strict_accuracy']['value']:.1f}% "
               f"| clean probe {100*deepest['clean_probe_balanced_accuracy']:.1f}%"
               + ("  | per layer " + " ".join(f"{n}={100*per_layer[n]['binding_accuracy']['value']:.1f}"
                                              for n in order) if args.per_layer else ""), flush=True)

@@ -15,6 +15,7 @@ import argparse, json
 from pathlib import Path
 import numpy as np, torch
 from evaluate_image_triples import encode
+from sensitivity_geometry import geometry_variants
 from evaluate_probe_suite import load_model_or_random
 
 
@@ -39,21 +40,30 @@ def main():
         model, tok, margs = load_model_or_random(path, a.device)
         f = {s: encode(model, tok, margs, t, a.batch_size, a.device) for s, t in T.items()}
         rec = {}
+        n = len(f["anchor"][next(iter(f["anchor"]))])
         for name in f["anchor"]:
-            # cosine distance on the unit-norm pooled features
-            dn = 1.0 - (f["anchor"][name] * f["para"][name]).sum(1)   # nuisance
-            ds = 1.0 - (f["para"][name] * f["swap"][name]).sum(1)     # semantic
-            # paired ratio per scene, plus the ratio of means
-            rec[name] = {
-                "nuisance_mean": float(dn.mean()), "semantic_mean": float(ds.mean()),
-                "S_ratio_of_means": float(ds.mean() / max(dn.mean(), 1e-12)),
-                "S_median_paired": float(np.median(ds / np.clip(dn, 1e-12, None))),
-                "fraction_semantic_larger": float((ds > dn).mean()),
-            }
+            stacked = np.concatenate([f["anchor"][name], f["para"][name], f["swap"][name]])
+            variants = {}
+            for geometry, x in geometry_variants(stacked).items():
+                anchor, para, swap = x[:n], x[n:2 * n], x[2 * n:]
+                dn = 1.0 - (anchor * para).sum(1)   # nuisance: camera / light jitter
+                ds = 1.0 - (para * swap).sum(1)     # semantic: two objects swap colours
+                variants[geometry] = {
+                    "nuisance_mean": float(dn.mean()), "semantic_mean": float(ds.mean()),
+                    "S_ratio_of_means": float(ds.mean() / max(dn.mean(), 1e-12)),
+                    "S_median_paired": float(np.median(ds / np.clip(dn, 1e-12, None))),
+                    "fraction_semantic_larger": float((ds > dn).mean()),
+                }
+            # raw keys stay at the top level (earlier results), the others nested
+            rec[name] = {**variants["raw"], "centred": variants["centred"], "zscore": variants["zscore"]}
         best = max(rec, key=lambda k: rec[k]["S_ratio_of_means"])
         dest.write_text(json.dumps({"protocol": {"model": str(path),
                                                  "triples": int(T["anchor"].shape[0])},
                                     "metrics": rec}, indent=2) + "\n")
+        l7 = rec["L7"]
+        print(f"{label}: L7 " + " | ".join(
+            f"{g} S={v['S_ratio_of_means']:.3f} (d_s {v['semantic_mean']:.5f} / d_n {v['nuisance_mean']:.5f})"
+            for g, v in (("raw", l7), ("centred", l7["centred"]), ("zscore", l7["zscore"]))), flush=True)
         print(f"{label}: L7 S={rec['L7']['S_ratio_of_means']:.3f} | "
               f"best {best} S={rec[best]['S_ratio_of_means']:.3f} "
               f"(sem {rec[best]['semantic_mean']:.5f} / nui {rec[best]['nuisance_mean']:.5f})", flush=True)

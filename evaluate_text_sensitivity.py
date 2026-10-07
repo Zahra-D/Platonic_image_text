@@ -24,6 +24,7 @@ from pathlib import Path
 import numpy as np, torch
 import evaluate_semantic_dprime as E
 from evaluate_probe_suite import load_model_or_random
+from sensitivity_geometry import geometry_variants
 
 
 def main():
@@ -57,20 +58,25 @@ def main():
                                 check=True, ablate_private=False, ablate_shared=False)
         rec = {}
         for name, F in feats.items():
-            F = F.astype(np.float64)
-            F = F / np.clip(np.linalg.norm(F, axis=1, keepdims=True), 1e-12, None)
-            d = lambda u, v: 1.0 - (F[idx[u]] * F[idx[v]]).sum(1)
-            dn, db, dc = d("query", "paraphrase"), d("paraphrase", "swap"), d("query", "twin")
-            rec[name] = {"nuisance_mean": float(dn.mean()), "binding_mean": float(db.mean()),
-                         "content_mean": float(dc.mean()),
-                         "S_binding": float(db.mean() / max(dn.mean(), 1e-12)),
-                         "S_content": float(dc.mean() / max(dn.mean(), 1e-12)),
-                         "fraction_binding_larger": float((db > dn).mean()),
-                         "fraction_content_larger": float((dc > dn).mean())}
+            variants = {}
+            for geometry, G in geometry_variants(F).items():
+                d = lambda u, v: 1.0 - (G[idx[u]] * G[idx[v]]).sum(1)
+                dn, db, dc = d("query", "paraphrase"), d("paraphrase", "swap"), d("query", "twin")
+                variants[geometry] = {"nuisance_mean": float(dn.mean()), "binding_mean": float(db.mean()),
+                                      "content_mean": float(dc.mean()),
+                                      "S_binding": float(db.mean() / max(dn.mean(), 1e-12)),
+                                      "S_content": float(dc.mean() / max(dn.mean(), 1e-12)),
+                                      "fraction_binding_larger": float((db > dn).mean()),
+                                      "fraction_content_larger": float((dc > dn).mean())}
+            rec[name] = {**variants["raw"], "centred": variants["centred"], "zscore": variants["zscore"]}
         best = max(rec, key=lambda k: rec[k]["S_binding"])
         dest.write_text(json.dumps({"protocol": {"model": str(path), "items": len(items)},
                                     "metrics": rec}, indent=2) + "\n")
         l7 = rec.get("L7.residual", rec[best])
+        print(f"{label}: L7 " + " | ".join(
+            f"{g} S_bind {v['S_binding']:.3f} S_cont {v['S_content']:.3f} "
+            f"(d_b {v['binding_mean']:.5f} d_c {v['content_mean']:.5f} / d_n {v['nuisance_mean']:.5f})"
+            for g, v in (("raw", l7), ("centred", l7["centred"]), ("zscore", l7["zscore"]))), flush=True)
         print(f"{label}: L7 S_bind {l7['S_binding']:.3f} S_cont {l7['S_content']:.3f} | "
               f"best S_bind {rec[best]['S_binding']:.3f} @{best} "
               f"(bind {rec[best]['binding_mean']:.5f} / nui {rec[best]['nuisance_mean']:.5f})", flush=True)
