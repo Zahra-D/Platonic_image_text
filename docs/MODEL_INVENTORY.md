@@ -173,3 +173,10 @@ Filters: no shared-LoRA models (`train_mode: lora`); training set > 1M samples. 
 - `text_module_jepa_layerwise_no_hsic_2m_4e` — shared LoRA
 
 </details>
+
+## Older runs without epoch checkpoints (112, all excluded)
+
+Runs that saved only `best.pt` / `last.pt` were checked separately: shared-LoRA runs, instruction tuning on 1k–2k pairs,
+the early dense multimodal / text runs (all trained on the 90k-scene set, e.g. `pretraining_*_dense_absolute_70e`,
+`multimodal_*_correct_dataset_visible_check`), the D3PM baselines (different model class) and the VQ-VAEs. None meets
+the >1M-sample rule, so the 108 runs above are the complete eligible set.

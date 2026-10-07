@@ -23,10 +23,11 @@ count epochs the same way, from the dense text epoch-20 checkpoint.
 | 2 | Cross-modal retrieval (`evaluate_cross_modal_retrieval.py`) | text × image | Can a linear map find an image's own caption among 1000? | ridge R@1 and MRR (i→t, t→i), Procrustes, shuffled control | R@1 0.001, MRR 0.0075; random encoders reach MRR 0.07–0.15 | R@1 0.5–0.7, MRR 0.63–0.79 | **yes** (centred) |
 | 3 | Layer-wise probe suite (`evaluate_probe_suite.py`) | image or text | Can a linear readout recover counts and colour–shape conjunctions, and how fast does that fall with masking? | count R², conj mAP, per t | random-init conj mAP 0.39 (image), 0.61 (text) | image conj mAP 0.6–0.74; text 0.97–0.98 | **yes** |
 | 4 | Scene-graph retrieval (`evaluate_scene_retrieval.py`) | image or text | Does representation similarity rank scene pairs like scene-graph similarity? | Spearman ρ_bag, ρ_conj; p@10 | ρ 0; p@10 0.004 | image ρ_conj 0.12–0.20; text ≈0.3 | **no** (uncentred cosine) |
-| 5 | Image binding probe (`evaluate_image_binding.py`) | image | Two scenes with the same attributes bound differently: can a probe tell which facts belong to which? | binding accuracy %, clean-probe balanced acc. | 50%; `embedding` floor ≈65% | 80–90% | **yes** (z-scored) |
+| 5 | Image binding probe (`evaluate_image_binding.py`) | image | Two scenes with the same attributes bound differently: can a probe tell which facts belong to which? | binding accuracy % (pairwise) **and strict binding %**, clean-probe balanced acc. | 50% (pairwise); `embedding` floor ≈65% | 80–90% | **yes** (z-scored) |
 | 6 | Image triples d′ (`evaluate_image_triples.py`) | image | From the same new camera, is the anchor closer to the correct scene than to the colour-swapped one? | d′ raw and **centred**, preference rate | 0 and 0.5; `embedding` ≈0.09 | centred d′ 0.3–0.5 | centred: **yes**; raw: partly |
-| 7 | Image semantic sensitivity (`evaluate_semantic_sensitivity.py`) | image | Does the representation move more for a colour swap than for a camera/light change? | `S` (ratio of means), median ratio, fraction | 1 is "equal", but it is not reachable here; random init 0.07 | higher | partly |
-| 8 | Text sensitivity (`evaluate_text_sensitivity.py`) | text | Does it move more for a binding swap (`S_bind`) or a new scene (`S_cont`) than for a rewording? | `S_bind`, `S_cont` | bag-of-words: `S_bind` 0, `S_cont` 0.91 | `S_cont` > 1; higher `S_bind` | partly |
+| 7 | Image semantic sensitivity (`evaluate_semantic_sensitivity.py`) | image | Does the representation move more for a colour swap than for a camera/light change? | `S` = d_s / d_n with **d_s and d_n reported**, in **raw, centred and z-scored** geometry; median ratio, fraction | 1 is "equal", but it is not reachable here; random init 0.07 | higher | raw: partly; centred / z: **yes** |
+| 8 | Text sensitivity (`evaluate_text_sensitivity.py`) | text | Does it move more for a binding swap (`S_bind`) or a new scene (`S_cont`) than for a rewording? | `S_bind`, `S_cont` with their distances, in **raw, centred and z-scored** geometry | bag-of-words: `S_bind` 0, `S_cont` 0.91 | `S_cont` > 1; higher `S_bind` | raw: partly; centred / z: **yes** |
+| 9b | **JEPA prediction check** (`evaluate_jepa_prediction.py`) | JEPA checkpoints | Does the JEPA predict *scene-specific* targets, or only the shared direction? | C₊ (own target), C₋ (other scene, same position), Δ = C₊ − C₋, raw and centred, per layer | Δ ≈ 0 = shortcut | centred Δ 0.3–0.7 | centred: **yes** |
 | 9 | Suite report (`scripts/summarize_eval_suite.py`) | — | Puts 3, 4, 7, 8 and 2 in one markdown view | inherits the source metrics | — | — | inherits |
 | 10 | Training-log diagnostics (`train_multimodal.py`, `shared_jepa.py`, `sigreg.py`, `lejepa_views.py`) | — | Is training healthy, and is it collapsing or shortcutting? | val loss, `*_acc`, `cos`, `target_spread`, `sigreg`, `pooled_cos`, `inv`, `emb_cos`, `proj_cos` | see §3 | see §3 | mixed |
 
@@ -62,7 +63,7 @@ masks tokens on purpose, and records these readouts:
 | `Lk.attn_out` | output of `blocks[k].attn.out_proj` | what attention writes into the residual |
 | `Lk.mlp_out` | output of `blocks[k].mlp[3]` | what the FFN writes into the residual |
 
-That gives 25 readouts. Retrieval (2) and the probe suite (3) drop `attn_out`
+That gives 25 readouts. `evaluate_cross_modal_structure.py --token-readouts` additionally reads, for every block output, the hidden state at BOS (`@bos`), EOS (`@eos`), the `[TEXT]`/`[IMAGE]` token (`@mod`) and the mean over all tokens including specials (`@all`). Tested on dense, trunk and JEPA models (Oct 2026): special tokens carry less than the content mean (text L7 probe 93.0% mean vs 89.2% `[TEXT]`, 86.3% EOS, 81.5% BOS; image BOS/EOS ≈ 65%, the floor), so mean pooling stays the default. Retrieval (2) and the probe suite (3) drop `attn_out`
 and use 17. Text sensitivity (8) uses its own decomposition, with 42 readouts:
 `.residual`, `.writes`, `.attn_out`, `.mlp_out` and `.attn_plus_residual` per block.
 
@@ -430,6 +431,11 @@ facts belong to which scene? A representation that only counts attributes scores
 1. Train the shared probe (§1.4) on scenes 0–11 999, separately for each readout.
 2. For each pair (A, B) and each flipped fact, score 1 if (logit_A − logit_B) has the correct sign. If |difference| ≤ 1e-9 the fact scores 0.5.
 3. **Binding accuracy** = mean over facts, then over pairs, with a 1000× bootstrap CI over pairs.
+   **Strict binding accuracy** (added Oct 2026) asks for more: the probe must classify **both** scenes correctly,
+   i.e. 𝟙[sign·s_A > 0 ∧ sign·s_B < 0] (the true side above 0, the false side below 0). Example: s_A = 2.0,
+   s_B = 0.5 counts for pairwise binding (2.0 > 0.5) but not for strict (the probe also calls the fact present
+   in B). It has its own bootstrap stream, so the pairwise CIs are unchanged. JSON: `binding_strict_accuracy`,
+   `per_pair_strict` (per layer too).
 4. **Clean probe** = balanced accuracy on all 8000 test scenes. Check it to confirm the probe works at all.
 5. The headline readout is fixed (L7, or `last`), so there is no best-of selection.
 
@@ -559,6 +565,16 @@ of meaning) than for a camera and light re-jitter (a nuisance change)?
    - **`S_median_paired`** = median(ds_i / dn_i);
    - **`fraction_semantic_larger`** = mean(ds_i > dn_i).
 3. `best` = argmax of `S_ratio_of_means` over the 25 readouts. No CI is computed.
+4. **Three geometries** (added Oct 2026, `sensitivity_geometry.py`): everything above is computed on the raw
+   unit features (top-level JSON keys, as before), on **centred** features (minus the mean over all
+   anchor / paraphrase / swap vectors, renormalised; key `centred`) and on **per-dimension z-scored** features
+   (key `zscore`). The log prints d_s, d_n and S for all three at L7. Raw S compares models with very different
+   cones (mean cosine 0.85–1.00), so read the centred / z-scored S, and always d_s and d_n separately: a falling
+   S can mean semantic distance shrank or nuisance distance grew.
+
+   *Example (L7):* trunk JEPA B1 has raw S 0.240 vs 0.444 for its start, but centred d_s is unchanged
+   (0.109 vs 0.105) while d_n grew 60% (0.366 vs 0.229); z-scored S 0.317 equals the diffusion control (0.313).
+   So JEPA made the trunk more viewpoint-sensitive, not less meaning-sensitive.
 
 **Outputs.** `<label>.json` with `metrics[readout] = {nuisance_mean, semantic_mean, S_ratio_of_means, S_median_paired, fraction_semantic_larger}`.
 
@@ -620,6 +636,8 @@ is merely **reworded**?
 1. With d = 1 − cos: dn = d(query, para), db = d(para, swap), dc = d(query, twin).
 2. `S_binding` = mean(db) / mean(dn) and `S_content` = mean(dc) / mean(dn), plus the per-item fractions db > dn and dc > dn.
 3. `best` = argmax of `S_binding` over 42 readouts. In the log, `L7` means `L7.residual`. No CI is computed.
+4. **Three geometries** (added Oct 2026): as for images, `S_binding`, `S_content` and their distances are also
+   computed on centred (`centred`) and per-dimension z-scored (`zscore`) features; the log prints all three at L7.
 
 **Outputs.** `<label>.json` with `metrics[readout] = {nuisance_mean, binding_mean, content_mean, S_binding, S_content, fraction_*}`.
 
@@ -687,6 +705,51 @@ So treat this report as optimistic. `outputs/EVAL_SUITE_REPORT.md` is a saved co
 
 ```bash
 cd clevr_discrete_diffusion && python3 scripts/summarize_eval_suite.py > outputs/EVAL_SUITE_REPORT.md
+```
+
+---
+
+### 2.10 JEPA prediction check (`evaluate_jepa_prediction.py`)
+
+**Question.** A JEPA's logged cosine between prediction and target can be close to 1 just because every vector
+shares one dominant direction. Does the predictor actually predict *this scene's* target?
+
+**Data.** 512 validation scenes per modality the checkpoint was trained on. Masks are the same as in training:
+per-modality 2D blocks or spans at the run's mask rate, trunk-only routing for `jepa_trunk_only` runs. The
+masks are seeded, so two passes see identical masks.
+
+**Computation.**
+1. **Rebuild the networks.** The student comes from the checkpoint, and the EMA teacher from
+   `shared_jepa_ema_teacher`. For teacherless LeJEPA, the model itself gives the clean targets without LayerNorm.
+2. **Predictions and targets.** At every masked token and supervised layer: the prediction is
+   `predict_data2vec(student hidden)`, and the target is the LayerNorm'd teacher state.
+3. **C₊** = mean cos(prediction, own target).
+4. **C₋** = mean cos(prediction, the target of **another scene at the same token position**). Using the same
+   position keeps positional structure from inflating it.
+5. **Δ** = C₊ − C₋.
+6. **Centred version:** repeat steps 3–5 after subtracting, from predictions and from targets, their mean over
+   all evaluated masked tokens of that layer and modality (two passes).
+
+**How to read it.** A large centred Δ means the predictor carries instance-specific information. Raw C₊ ≈ C₋
+(Δ ≈ 0) means it mostly learned the shared direction.
+
+**Example** (mean over the 8 supervised layers):
+
+| checkpoint | raw C₊ / C₋ / Δ | centred C₊ / C₋ / Δ |
+|---|---|---|
+| trunk JEPA B, text, 4 JEPA epochs | 0.97 / 0.64 / 0.34 | 0.94 / 0.23 / **0.72** |
+| trunk JEPA B, image, 4 JEPA epochs | 0.93 / 0.76 / 0.18 | 0.87 / 0.51 / **0.36** |
+| image I-JEPA (single-modality) | 0.94 / 0.76 / 0.18 | 0.89 / 0.52 / **0.37** |
+| token-level LeJEPA, image (collapsed run) | 0.997 / 0.950 / 0.05 | 0.996 / 0.927 / **0.07** |
+
+**Caveat.** Δ measures token-level prediction. The text trunk has a large Δ (it predicts which word belongs at a
+masked position) while its pooled scene features stay at random-init level on binding probes. Read it together
+with §2.1 and §2.3.
+
+**Command:**
+```bash
+python3 evaluate_jepa_prediction.py --output-dir outputs/eval_all/jepa_prediction \
+  --checkpoint B4=outputs/mm_trunk_ijepa_private_diff_from_ep6_4e/epoch_003.pt
 ```
 
 ---
