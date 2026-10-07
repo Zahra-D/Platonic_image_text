@@ -1,0 +1,12 @@
+# Versions used on the development machine (Python 3.13). Install torch for your CUDA first:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu130   (or cu12x)
+torch>=2.6
+numpy>=1.26,<2
+pyyaml>=6.0
+wandb>=0.25
+pillow>=10
+tqdm>=4.66
+# evaluation scripts
+scipy>=1.11
+scikit-learn>=1.4
+pandas>=2.0

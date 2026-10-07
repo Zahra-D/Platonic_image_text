@@ -29,6 +29,7 @@ on the same structure to the extent that either has learned the scenes.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 import random
@@ -48,9 +49,9 @@ def arguments():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--text-checkpoint", action="append", default=[], metavar="LABEL=PATH")
     p.add_argument("--image-checkpoint", action="append", default=[], metavar="LABEL=PATH")
-    p.add_argument("--image-manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
+    p.add_argument("--image-manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
     p.add_argument("--image-cache", default="outputs/image_only_1_2m_token_cache/val_tokens.pt")
-    p.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    p.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     p.add_argument("--num-scenes", type=int, default=4000)
     p.add_argument("--probe-train", type=int, default=3000)
     p.add_argument("--rsa-pairs", type=int, default=200000)

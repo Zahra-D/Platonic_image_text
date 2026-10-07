@@ -40,6 +40,7 @@ Baselines are run through the same code path:
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 import time
@@ -55,7 +56,7 @@ from data import ClevrTextTokenizer, MultimodalCollator
 from evaluate_shared_private_retrieval import checkpoint_args, load_model
 from train_multimodal import build_model
 
-DATA_ROOT = "/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible"
+DATA_ROOT = CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible"
 VALUES = {
     "color": ("gray", "red", "blue", "green", "brown", "purple", "cyan", "yellow"),
     "shape": ("cube", "sphere", "cylinder"),

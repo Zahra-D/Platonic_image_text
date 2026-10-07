@@ -27,6 +27,7 @@ results are directly comparable with those evaluations.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 from collections import Counter
@@ -55,8 +56,8 @@ def arguments():
     parser.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
     parser.add_argument("--binding-dir", default="outputs/binding_swap_eval")
     parser.add_argument("--gallery", default="outputs/shared_private_semantic_template_retrieval/plain_lora_epoch003/variants.jsonl")
-    parser.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl")
-    parser.add_argument("--train-manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl")
+    parser.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl")
+    parser.add_argument("--train-manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_2m/train_text_only_human.jsonl")
     parser.add_argument("--probe-train-samples", type=int, default=20000)
     parser.add_argument("--probe-val-offset", type=int, default=10000)
     parser.add_argument("--probe-val-samples", type=int, default=2048)

@@ -28,6 +28,7 @@ number in `evaluate_cross_modal_structure.py` lacks.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import collections
 import json
@@ -48,7 +49,7 @@ ATTRIBUTES = ("color", "shape", "material", "size")
 def arguments():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
     p.add_argument("--image-cache", default="outputs/image_only_1_2m_token_cache/val_tokens.pt")
     p.add_argument("--probe-train", type=int, default=12000)
     p.add_argument("--min-label-count", type=int, default=50)

@@ -7,6 +7,7 @@ Two ground-truth scene descriptions are compared against the representation:
   conj : counts of each (colour, shape) pair               (binding-aware)
 
 Reporting both separates "the geometry tracks which ingredients are present"
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 from "the geometry tracks which attribute belongs to which object".  A model
 that only does the former scores well on bag and poorly on conj.
 
@@ -81,7 +82,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
     p.add_argument("--modality", choices=["image", "text"], default="image")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
     p.add_argument("--image-cache", default="outputs/image_only_2_5m_token_cache/val_tokens.pt")
     p.add_argument("--caption-field", default="caption_human")
     p.add_argument("--num-scenes", type=int, default=2500)

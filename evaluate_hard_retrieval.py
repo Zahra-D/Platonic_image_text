@@ -21,6 +21,7 @@ equality of every candidate set is verified, not assumed.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import copy
 import json
@@ -43,8 +44,8 @@ def arguments():
     p.add_argument("--checkpoint", action="append", default=[], metavar="LABEL=PATH")
     p.add_argument("--untrained-from", default=None, metavar="PATH",
                    help="Also score a randomly initialized model with this checkpoint's architecture.")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl")
-    p.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl")
+    p.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     p.add_argument("--num-worlds", type=int, default=1000)
     p.add_argument("--negatives", type=int, default=7)
     p.add_argument("--max-tokens", type=int, default=190)

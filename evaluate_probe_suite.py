@@ -16,6 +16,7 @@ With --noise-levels the same probes are refit on inputs corrupted to each
 masking fraction, which is this model family's analogue of diffusion t.
 """
 from __future__ import annotations
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse, json
 from pathlib import Path
 import numpy as np, torch, torch.nn.functional as F
@@ -188,7 +189,7 @@ def main():
     p.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
     p.add_argument("--modality", choices=["image", "text"], default="image")
     p.add_argument("--caption-field", default="caption_human")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
     p.add_argument("--image-cache", default="outputs/image_only_2_5m_token_cache/val_tokens.pt")
     p.add_argument("--num-scenes", type=int, default=8000)
     p.add_argument("--train-frac", type=float, default=0.75)

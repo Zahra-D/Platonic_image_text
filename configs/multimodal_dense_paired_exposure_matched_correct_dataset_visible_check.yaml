@@ -7,10 +7,10 @@ tokenizer:
   embed_dim: 64
 
 data:
-  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
-  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
-  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
-  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
   caption_field: caption_human
   token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
   mode: paired

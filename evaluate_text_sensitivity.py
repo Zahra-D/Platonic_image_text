@@ -18,6 +18,7 @@ camera change and the binding change is a colour exchange at a fixed camera).
 S > 1: the representation moves more for meaning than for phrasing.
 """
 from __future__ import annotations
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse, json
 from pathlib import Path
 import numpy as np, torch
@@ -28,8 +29,8 @@ from evaluate_probe_suite import load_model_or_random
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl")
-    p.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl")
+    p.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     p.add_argument("--num-worlds", type=int, default=2000)
     p.add_argument("--max-tokens", type=int, default=190)
     p.add_argument("--batch-size", type=int, default=64)

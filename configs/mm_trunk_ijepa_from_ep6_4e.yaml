@@ -47,12 +47,12 @@ data:
   max_text_length: 192
   mode: unpaired
   token_cache_dir: outputs/image_only_2_5m_token_cache
-  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
-  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
-  train_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
-  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
-  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
-  val_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  train_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  val_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_1m/val_text_only_human.jsonl
 diffusion:
   eps: 0.001
   full_mask_probability: 0.0

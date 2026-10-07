@@ -9,6 +9,7 @@ It never trains a model and never changes a checkpoint.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import importlib.util
 import json
@@ -40,7 +41,7 @@ def arguments():
     parser.add_argument("--manifest", required=True, help="Held-out validation JSONL manifest.")
     parser.add_argument(
         "--caption-generator",
-        default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py",
+        default=CLEVR_GEN_ROOT + "/generate_human_captions.py",
         help="Local controlled-language generator used to make truthful variants.",
     )
     parser.add_argument("--num-worlds", type=int, default=256)

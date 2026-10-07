@@ -14,10 +14,13 @@ import sys
 import time
 from pathlib import Path
 
+import clevr_paths  # noqa: F401  (sets CLEVR_DATA / CLEVR_GEN defaults for ${CLEVR_DATA} in configs)
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader, Subset
+from torch.utils.data.distributed import DistributedSampler
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -52,12 +55,98 @@ from objective_gradient_diagnostics import objective_shared_gradient_metrics
 DEFAULT_CONFIG = str(Path(__file__).resolve().parent / "configs" / "multimodal_dense.yaml")
 
 
+# Distributed data parallel (torchrun). Single-process runs keep RANK 0 / WORLD 1
+# and behave exactly as before.
+_RANK, _WORLD, _LOCAL_RANK = 0, 1, 0
+
+
+def init_distributed() -> None:
+    """Join the torchrun process group when WORLD_SIZE > 1 and pin this rank's GPU."""
+    global _RANK, _WORLD, _LOCAL_RANK
+    world = int(os.environ.get("WORLD_SIZE", "1"))
+    if world <= 1:
+        return
+    _RANK, _WORLD = int(os.environ["RANK"]), world
+    _LOCAL_RANK = int(os.environ.get("LOCAL_RANK", "0"))
+    if torch.cuda.is_available():
+        torch.cuda.set_device(_LOCAL_RANK)
+    dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
+
+
+def all_reduce_gradients(model) -> None:
+    """Average accumulated gradients over ranks once per optimizer step.
+
+    Explicit instead of a DistributedDataParallel wrapper: the trainer runs
+    several forwards per step (EMA teacher, trunk-only JEPA, split diffusion /
+    representation backward passes) and some parameters are unused in some
+    steps, which DDP's hooks handle poorly. A parameter with a gradient on any
+    rank is reduced on every rank (zeros where absent) so all ranks apply the
+    same update; one with no gradient anywhere stays None, as in a single run.
+    """
+    if _WORLD <= 1:
+        return
+    params = [q for q in model.parameters() if q.requires_grad]
+    device = next(model.parameters()).device
+    present = torch.tensor([q.grad is not None for q in params], dtype=torch.int32, device=device)
+    dist.all_reduce(present)
+    grads = []
+    for q, n in zip(params, present.tolist()):
+        if n == 0:
+            continue
+        if q.grad is None:
+            q.grad = torch.zeros_like(q)
+        grads.append(q.grad)
+    for dtype in {g.dtype for g in grads}:
+        bucket = [g for g in grads if g.dtype == dtype]
+        flat = torch._utils._flatten_dense_tensors(bucket)
+        dist.all_reduce(flat)
+        flat /= _WORLD
+        for g, synced in zip(bucket, torch._utils._unflatten_dense_tensors(flat, bucket)):
+            g.copy_(synced)
+
+
+def broadcast_module(module) -> None:
+    """Copy rank 0's parameters and buffers to every rank."""
+    if _WORLD > 1 and module is not None:
+        for tensor in module.state_dict().values():
+            dist.broadcast(tensor, 0)
+
+
+def parameters_in_sync(model) -> bool:
+    """Cheap cross-rank check that every rank holds the same weights."""
+    if _WORLD <= 1:
+        return True
+    total = torch.stack([q.detach().double().sum() for q in model.parameters()]).sum().reshape(1)
+    gathered = [torch.zeros_like(total) for _ in range(_WORLD)]
+    dist.all_gather(gathered, total)
+    return all(torch.allclose(g, gathered[0], rtol=1e-9, atol=1e-6) for g in gathered)
+
+
+def all_reduce_mean(value: float, device) -> float:
+    if _WORLD <= 1:
+        return value
+    tensor = torch.tensor([float(value)], dtype=torch.float64, device=device)
+    dist.all_reduce(tensor)
+    return float(tensor.item() / _WORLD)
+
+
+def _expand_env(value):
+    """Expand $VAR / ${VAR} in config strings so paths can point at a cluster's data root."""
+    if isinstance(value, str):
+        return os.path.expandvars(value)
+    if isinstance(value, dict):
+        return {key: _expand_env(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_expand_env(item) for item in value]
+    return value
+
+
 def parse_args():
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--config", default=DEFAULT_CONFIG)
     known, _ = pre.parse_known_args()
     with open(known.config) as handle:
-        cfg = yaml.safe_load(handle) or {}
+        cfg = _expand_env(yaml.safe_load(handle) or {})
     data = cfg.get("data", {})
     tokenizer = cfg.get("tokenizer", {})
     model = cfg.get("model", {})
@@ -686,10 +775,13 @@ def parse_args():
 
 def setup_logging(output_dir: Path, resume: str | None) -> logging.Logger:
     logger = logging.getLogger("train_multimodal")
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO if _RANK == 0 else logging.WARNING)
     logger.handlers.clear()
     formatter = logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-    for handler in (logging.StreamHandler(sys.stdout), logging.FileHandler(output_dir / "train.log", mode="a" if resume else "w")):
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if _RANK == 0:
+        handlers.append(logging.FileHandler(output_dir / "train.log", mode="a" if resume else "w"))
+    for handler in handlers:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     return logger
@@ -1112,6 +1204,8 @@ def save_checkpoint(
     path, model, optimizer, epoch, step, best_val, args, tokenizer, lora_modules,
     epochs_without_improvement=0, ema_teacher=None, lr_scheduler=None,
 ):
+    if _RANK != 0:  # rank 0 writes; the others hold identical weights
+        return
     payload = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
@@ -1735,6 +1829,7 @@ def main():
             raise ValueError("backtranslation.pseudo_align_temperature must be positive")
         if args.backtranslation_warmup_steps < 0:
             raise ValueError("backtranslation.warmup_steps must be non-negative")
+    init_distributed()
     torch.manual_seed(args.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     amp_dtype = torch.bfloat16 if args.amp == "bf16" else None
@@ -1770,7 +1865,8 @@ def main():
         tokenizer = ClevrTextTokenizer(initialization_payload["text_vocabulary"])
     else:
         tokenizer = ClevrTextTokenizer.build(train_source.texts)
-    tokenizer.save(output_dir / "text_tokenizer.json")
+    if _RANK == 0:
+        tokenizer.save(output_dir / "text_tokenizer.json")
     collator = MultimodalCollator(tokenizer, args.num_image_codes, args.max_text_length)
 
     if args.data_mode == "unpaired":
@@ -1831,7 +1927,20 @@ def main():
         val_dataset_for_loader = Subset(val_dataset, range(min(max(1, carrier_limit), len(val_dataset))))
     else:
         val_dataset_for_loader = val_dataset
-    train_loader = DataLoader(train_dataset_for_loader, loader_batch_size, shuffle=True, num_workers=args.num_workers, collate_fn=collator, pin_memory=True, drop_last=True)
+    # Under torchrun each rank reads a disjoint shard of every epoch; a
+    # single-process run keeps the original shuffled loader.
+    train_sampler = (
+        DistributedSampler(train_dataset_for_loader, num_replicas=_WORLD, rank=_RANK,
+                           shuffle=True, seed=args.seed, drop_last=True)
+        if _WORLD > 1 else None
+    )
+    train_loader = DataLoader(train_dataset_for_loader, loader_batch_size, shuffle=train_sampler is None,
+                              sampler=train_sampler, num_workers=args.num_workers, collate_fn=collator,
+                              pin_memory=True, drop_last=True)
+    if _WORLD > 1:
+        log.info(f"distributed: {_WORLD} ranks, per-rank batch {args.batch_size} x accumulation "
+                 f"{args.gradient_accumulation_steps} -> global batch "
+                 f"{args.batch_size * args.gradient_accumulation_steps * _WORLD}")
     val_loader = DataLoader(val_dataset_for_loader, loader_batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collator, pin_memory=True)
     paired_val_loader = None
     step_val_loader = None
@@ -2104,7 +2213,7 @@ def main():
 
     vqvae = load_vqvae(args, device)
     wandb_run = None
-    if args.wandb:
+    if args.wandb and _RANK == 0:
         import wandb
         wandb_run = wandb.init(
             project=args.wandb_project,
@@ -2166,10 +2275,14 @@ def main():
     # construction. Reset the training RNG after all model/evaluator/W&B
     # setup so matched ablations receive the same loader shuffle, masks, and
     # dropout sequence rather than a configuration-dependent RNG offset.
-    torch.manual_seed(args.seed)
+    broadcast_module(model)
+    broadcast_module(ema_teacher)
+    rank_seed = args.seed + 1_000_003 * _RANK
+    torch.manual_seed(rank_seed)
     if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
-    log.info(f"training RNG reset after initialization: seed={args.seed}")
+        torch.cuda.manual_seed_all(rank_seed)
+    log.info(f"training RNG reset after initialization: seed={args.seed}"
+             + (f" (+ per-rank offset, {_WORLD} ranks)" if _WORLD > 1 else ""))
 
     stop = False
     window_start = time.time()
@@ -2210,6 +2323,8 @@ def main():
 
     optimizer.zero_grad(set_to_none=True)
     for epoch in range(start_epoch, args.epochs):
+        if train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         if args.data_mode == "unpaired":
             # DataLoader workers are non-persistent, so each epoch's workers
             # observe this freshly drawn strict text/image derangement.
@@ -2969,6 +3084,7 @@ def main():
             is_last_batch = batch_index + 1 == len(train_loader)
             if micro_step % args.gradient_accumulation_steps != 0 and not is_last_batch:
                 continue
+            all_reduce_gradients(model)
             if args.max_grad_norm is not None and args.max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
             alignment_metrics = gradient_balancer.update()
@@ -2990,7 +3106,7 @@ def main():
                 )
             optimizer.zero_grad(set_to_none=True)
             step += 1
-            if args.probe_every_steps and step % args.probe_every_steps == 0:
+            if args.probe_every_steps and step % args.probe_every_steps == 0 and _RANK == 0:
                 launch_periodic_probe(
                     model, tokenizer, args, output_dir, step, periodic_probe_state
                 )
@@ -3080,7 +3196,7 @@ def main():
                             {f"delta_effective_rank/{key}": value for key, value in ranks.items()},
                             step=step,
                         )
-                log.info(f"epoch={epoch:03d} step={step:07d} stage={stage_text} lr={optimizer.param_groups[0]['lr']:.3g} loss={loss_value:.4f} optimized_loss={optimized_loss_value:.4f} unweighted_loss={unweighted_loss_value:.4f} {modality_text} {accuracy_text} {adversarial_text} {sigreg_text} {jepa_text} {hsic_text} {backtranslation_text} {balance_text} samples/s={rate:.1f}")
+                log.info(f"epoch={epoch:03d} step={step:07d} stage={stage_text} lr={optimizer.param_groups[0]['lr']:.3g} loss={loss_value:.4f} optimized_loss={optimized_loss_value:.4f} unweighted_loss={unweighted_loss_value:.4f} {modality_text} {accuracy_text} {adversarial_text} {sigreg_text} {jepa_text} {hsic_text} {backtranslation_text} {balance_text} samples/s={rate:.1f}" + (f" global_samples/s={rate * _WORLD:.1f}" if _WORLD > 1 else ""))
                 if wandb_run:
                     payload = {
                         "train/loss": loss_value,
@@ -3208,8 +3324,12 @@ def main():
                 break
 
         if (epoch + 1) % args.eval_every == 0 or stop:
-            val_loss = evaluate(model, val_loader, args, tokenizer, device, amp_dtype)
+            val_loss = all_reduce_mean(evaluate(model, val_loader, args, tokenizer, device, amp_dtype), device)
             log.info(f"validation epoch={epoch:03d} fixed-t=0.75 loss={val_loss:.4f}")
+            if not parameters_in_sync(model):
+                log.warning(f"distributed: ranks hold DIFFERENT weights at epoch={epoch:03d}")
+            elif _WORLD > 1:
+                log.info(f"distributed: all {_WORLD} ranks hold identical weights at epoch={epoch:03d}")
             diffusion_nll_metrics = evaluate_diffusion_nll(
                 model, val_loader, args, tokenizer, device, amp_dtype
             )
@@ -3235,7 +3355,7 @@ def main():
                 )
                 log.info(f"paired validation epoch={epoch:03d} {summary}")
             sample_path = None
-            if args.gen_num_samples > 0 and args.objective != "text":
+            if args.gen_num_samples > 0 and args.objective != "text" and _RANK == 0:
                 sample_path = output_dir / "samples" / f"epoch_{epoch:03d}.png"
                 save_samples(model, tokenizer, collator, val_source, vqvae, args, device, sample_path)
             if wandb_run:
@@ -3303,6 +3423,9 @@ def main():
     if wandb_run:
         wandb_run.finish()
     log.info("training complete")
+    if _WORLD > 1:
+        dist.barrier()
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

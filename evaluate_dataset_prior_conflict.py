@@ -29,6 +29,7 @@ by selecting the best feature after looking at the result.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 import math
@@ -55,16 +56,16 @@ def arguments():
     p.add_argument("--checkpoint", action="append", required=True, metavar="LABEL=PATH")
     p.add_argument(
         "--train-manifest",
-        default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl",
+        default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_2m/train_text_only_human.jsonl",
         help="Existing training manifest, read only to estimate the empirical object prior.",
     )
     p.add_argument(
         "--manifest",
-        default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl",
+        default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl",
     )
     p.add_argument(
         "--caption-generator",
-        default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py",
+        default=CLEVR_GEN_ROOT + "/generate_human_captions.py",
     )
     p.add_argument(
         "--reuse-dprime-dir", default="outputs/semantic_dprime_eval",

@@ -29,6 +29,7 @@ evaluate_cross_modal_structure.load_scenes with the same seed, so the first
 """
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 from pathlib import Path
@@ -52,9 +53,9 @@ def arguments():
     p.add_argument("--image-checkpoint", action="append", default=[], metavar="LABEL=PATH")
     p.add_argument("--pair", action="append", default=[], metavar="TEXT_LABEL|IMAGE_LABEL",
                    help="pairings to score; default is every text x image combination")
-    p.add_argument("--image-manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
+    p.add_argument("--image-manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl")
     p.add_argument("--image-cache", default="outputs/image_only_2_5m_token_cache/val_tokens.pt")
-    p.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    p.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     p.add_argument("--num-scenes", type=int, default=8000)
     p.add_argument("--test", type=int, default=1000)
     p.add_argument("--val", type=int, default=1000)

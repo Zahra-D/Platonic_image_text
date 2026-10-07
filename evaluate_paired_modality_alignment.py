@@ -31,6 +31,7 @@ the accumulated shared-write and private-write streams.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 from pathlib import Path
@@ -51,7 +52,7 @@ def arguments():
                    help="Text side of a separately-trained pair.")
     p.add_argument("--image-model", action="append", default=[], metavar="LABEL=PATH",
                    help="Image side of a separately-trained pair.")
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl")
     p.add_argument("--image-cache", default="outputs/platonic_token_cache_correct_dataset_visible_check/val_tokens.pt")
     p.add_argument("--caption-field", default="caption_human")
     p.add_argument("--num-scenes", type=int, default=2000)

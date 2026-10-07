@@ -38,6 +38,7 @@ the standard deviation of cosines between queries of different worlds.
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 from collections import Counter
@@ -57,10 +58,10 @@ TIE_TOLERANCE = 1e-9
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", action="append", default=[], metavar="LABEL=PATH")
-    parser.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl")
-    parser.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    parser.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl")
+    parser.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     parser.add_argument("--num-worlds", type=int, default=512)
-    parser.add_argument("--train-manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl")
+    parser.add_argument("--train-manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_2m/train_text_only_human.jsonl")
     parser.add_argument("--probe-train-samples", type=int, default=20000)
     parser.add_argument("--probe-val-offset", type=int, default=10000,
                         help="Held-out human captions for probe sanity start here, disjoint from the test worlds.")

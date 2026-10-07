@@ -34,6 +34,7 @@ hard: word content alone separates a paraphrase from a different scene, so
 
 from __future__ import annotations
 
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse
 import json
 import random
@@ -73,8 +74,8 @@ def arguments():
         "--tokenizer-from", default=None, metavar="PATH",
         help="Checkpoint supplying this repo's tokenizer, which builds the items.",
     )
-    p.add_argument("--manifest", default="/home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl")
-    p.add_argument("--caption-generator", default="/home/zd25e122/clevr-dataset-gen_clone/image_generation/generate_human_captions.py")
+    p.add_argument("--manifest", default=CLEVR_DATA_ROOT + "/platonic_text_only_v1_1m/val_text_only_human.jsonl")
+    p.add_argument("--caption-generator", default=CLEVR_GEN_ROOT + "/generate_human_captions.py")
     p.add_argument("--num-worlds", type=int, default=2000)
     p.add_argument("--max-tokens", type=int, default=190)
     p.add_argument("--sublayer-layers", type=int, nargs="+", default=[0, 1, 2, 3, 4, 5, 6, 7])

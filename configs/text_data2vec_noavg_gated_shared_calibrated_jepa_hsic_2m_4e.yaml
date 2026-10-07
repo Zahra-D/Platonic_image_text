@@ -1,6 +1,6 @@
 # Matched data2vec final-teacher-layer control with JEPA gradient ratio calibrated to 5%.
 tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
-data: {train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m, val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m, train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl, val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl, caption_field: caption_human, token_cache_dir: outputs/unused_text_only_cache, mode: text_only, balanced_modalities: false, max_text_length: 192}
+data: {train_dir: ${CLEVR_DATA}/platonic_text_only_v1_2m, val_dir: ${CLEVR_DATA}/platonic_text_only_v1_1m, train_manifest: ${CLEVR_DATA}/platonic_text_only_v1_2m/train_text_only_human.jsonl, val_manifest: ${CLEVR_DATA}/platonic_text_only_v1_1m/val_text_only_human.jsonl, caption_field: caption_human, token_cache_dir: outputs/unused_text_only_cache, mode: text_only, balanced_modalities: false, max_text_length: 192}
 model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
 lora: {train_mode: lora, rank: 384, alpha: 256, dropout: 0.0, target_modules: [qkv, out_proj, mlp.0, mlp.3]}
 diffusion: {objective: text, eps: 1.0e-3, unweighting: false, full_mask_probability: 0.0}
