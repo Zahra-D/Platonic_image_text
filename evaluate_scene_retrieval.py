@@ -7,7 +7,6 @@ Two ground-truth scene descriptions are compared against the representation:
   conj : counts of each (colour, shape) pair               (binding-aware)
 
 Reporting both separates "the geometry tracks which ingredients are present"
-from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 from "the geometry tracks which attribute belongs to which object".  A model
 that only does the former scores well on bag and poorly on conj.
 
@@ -16,6 +15,7 @@ sampled pairs, and precision@k of representation neighbours against scene
 neighbours.
 """
 from __future__ import annotations
+from clevr_paths import CLEVR_DATA_ROOT, CLEVR_GEN_ROOT
 import argparse, json
 from pathlib import Path
 import numpy as np, torch
