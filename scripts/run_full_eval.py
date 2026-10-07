@@ -27,7 +27,7 @@ DENSE_T = {1: "text_dense_diffusion_2m_4e_matched/epoch_000", 2: "text_dense_dif
            40: "text_dense_diffusion_2m_40e_continued/epoch_039"}
 
 GUARD = r'''#!/bin/bash
-set -u; cd {root}
+set -u; export CLEVR_DATA=${{CLEVR_DATA:-/home/zd25e122/clevr-dataset-gen_clone/output}}; cd {root}
 export PYTHONUNBUFFERED=1 PYTORCH_ALLOC_CONF=expandable_segments:True CUDA_DEVICE_ORDER=PCI_BUS_ID
 export CUDA_VISIBLE_DEVICES={gpu}; MIN_MB=${{MIN_MB:-4000}}; START_MB=${{START_MB:-9000}}
 Q={q}; mkdir -p $Q/logs
