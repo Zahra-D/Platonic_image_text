@@ -1,0 +1,120 @@
+# As the random-t mirror, but masking 2D blocks instead.
+#
+# Same initialization from the dense image checkpoint and the same layerwise
+# all-8-block data2vec target, with I-JEPA-style rectangles (10-25% of the 16x24
+# grid each, aspect 0.75-1.5, ~30% hidden) in place of the per-sample random-t
+# schedule. Paired with the random-t run this isolates whether the masking style
+# matters once the trunk is already trained -- on text it did not.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  mode: image_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: image
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+  train_fixed_t: 0.45
+  mask_block_2d: true
+  mask_block_scale:
+  - 0.15
+  - 0.2
+  mask_block_aspect:
+  - 0.3
+  - 3.0
+lora:
+  train_mode: dense
+train:
+  batch_size: 64
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/image_ijepa_sweep_blk_wide_t45
+  probe_every_steps: 0
+  init_checkpoint: outputs/image_dense_diffusion_2_5m_40e/epoch_011.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 5000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: image_data2vec_from_dense
+  run_name: image_ijepa_sweep_blk_wide_t45
+  tags:
+  - image-only
+  - dense
+  - data2vec-faithful
+  - data2vec-layerwise
+  - blocks-0-7
+  - no-diffusion-loss
+  - from-dense
+  - block-2d-masking
+  - 1_2m-images
+  - two-epochs

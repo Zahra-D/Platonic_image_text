@@ -1,0 +1,14 @@
+# Raising unpaired text/image CKA. Baselines: unpaired dense 0.187, JEPA-EMA 0.116,
+# JEPA-SIGReg 0.023. Target: paired dense 0.554 (L7) / 0.618 (L6).
+mm_unpaired_merged_jepa_trunk_private_diff_1_2m_2e
+mm_unpaired_stage2_trainable_1_2m_2e
+mm_unpaired_merged_moments_1_2m_2e
+mm_unpaired_jepa_moments_1_2m_2e
+mm_unpaired_moments_only_1_2m_2e
+mm_unpaired_jepa_fixedL6_1_2m_2e
+mm_unpaired_jepa_adversarial_1_2m_2e
+mm_unpaired_jepa_moments_w10_1_2m_2e
+mm_unpaired_jepa_fixedL6_moments_1_2m_2e
+mm_unpaired_dense_8e_continued
+mm_unpaired_jepa_anchored_diff02_1_2m_2e
+mm_paired_merged_anchored_diff02_1_2m_3e

@@ -1,0 +1,115 @@
+# JEPA on the unpaired dense trunk -- EMA teacher version.
+#
+# Until now every JEPA run started from a *single-modality* trunk: text-only or
+# image-only. This one starts from `multimodal_unpaired_dense_1_2m_4e`, a dense
+# model that already saw both modalities (unpaired, 4 epochs, validation 2.1990),
+# and applies the objective that works best on text: layerwise data2vec, all 8
+# blocks, each predicting its own parameter-free LayerNorm-ed EMA-teacher state
+# through its own MLP predictor, diffusion.weight = 0.
+#
+# Its twin (..._sigreg_...) is identical except that SIGReg replaces the teacher.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_pairs_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_pairs_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: both
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+lora:
+  train_mode: dense
+train:
+  batch_size: 64
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/mm_unpaired_jepa_moments_w10_1_2m_2e
+  init_checkpoint: outputs/multimodal_unpaired_dense_1_2m_4e/epoch_003.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 5000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  cross_modal_moment_weight: 10.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: unpaired_jepa_from_unpaired_dense
+  run_name: mm_unpaired_jepa_moments_w10_1_2m_2e
+  tags:
+  - unpaired
+  - both-modalities
+  - dense
+  - data2vec-layerwise
+  - blocks-0-7
+  - ema-teacher
+  - no-diffusion-loss
+  - from-unpaired-dense
+  - 1_2m
+  - two-epochs

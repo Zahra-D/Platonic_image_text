@@ -1,0 +1,113 @@
+# Image-only dense control: 1.2M CLEVR images, 4 epochs. Matched to the LoRA runs.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: image_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: image
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+lora:
+  train_mode: dense_private
+  rank: 384
+  private_rank: 128
+  alpha: 128
+  dropout: 0.0
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  freeze_base: true
+train:
+  batch_size: 64
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/image_dense_private_frozen_hsic_from_d2v_lw_block2d_1_2m_2e
+  init_checkpoint: outputs/image_data2vec_from_dense_layerwise_all_block2d_1_2m_2e/epoch_001.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 250
+  objective_gradient_diagnostic_layers:
+  - 0
+  - 2
+  - 4
+  - 7
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  shared_jepa_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  modulewise_jepa_mode: none
+  modulewise_jepa_modules:
+  - out_proj
+  - mlp.3
+  modulewise_hsic_enabled: true
+  modulewise_hsic_gradient_ratio: 0.05
+  modulewise_hsic_update_every: 100
+  modulewise_hsic_ema_decay: 0.95
+  modulewise_hsic_min_weight: 0.0001
+  modulewise_hsic_max_weight: 10.0
+  modulewise_hsic_warmup_steps: 1000
+  modulewise_hsic_max_tokens: 512
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: image_only_1_2m_4epoch
+  run_name: image_dense_private_frozen_hsic_from_d2v_lw_block2d_1_2m_2e
+  tags:
+  - pretraining
+  - image-only
+  - dense
+  - control
+  - 1_2m-images
+  - four-epochs

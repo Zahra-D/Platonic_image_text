@@ -1,0 +1,142 @@
+# Stage 2 on the layerwise-all-blocks data2vec trunk.
+#
+# The stage-1 trunk here is configs/text_data2vec_from_dense_layerwise_all_2m_2e
+# -- data2vec with each of the 8 blocks predicting its own EMA target -- which
+# measured the strongest semantic and binding effect sizes of any model in this
+# catalog (d_semantic +0.75 at L7 against dense's +0.38; best d_binding +0.527
+# at L5.mlp_out against dense's +0.244).
+#
+# The whole trunk is FROZEN: base weights, embeddings, LayerNorms and the
+# output head. The only trainable tensors are the rank-128 modality-private
+# adapters on qkv, out_proj, mlp.0 and mlp.3 in every block (12.58M of 27.45M
+# parameters). The only objectives are the diffusion loss and HSIC between each
+# module's dense (shared) write and its private write, at out_proj and mlp.3 in
+# all 8 blocks, with the adaptive coefficient calibrated to a 5% gradient ratio.
+# No JEPA: a frozen trunk cannot move, so there would be nothing for it to do.
+#
+# What this tests: if the frozen trunk really holds the scene semantics, a
+# rank-128 private branch should be able to supply the modality-specific detail
+# the diffusion loss needs, without the shared route changing at all.
+#
+# One caveat by construction: the output head is frozen at values trained for
+# the *pre-data2vec* dense trunk, while the trunk has since drifted (its
+# validation loss rose to 1.6065). The private branch therefore has to work
+# against a stale readout. If reconstruction stalls well above the dense
+# baseline, unfreezing the head and the final LayerNorm is the first thing to
+# try.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense_private
+  rank: 384
+  private_rank: 128
+  alpha: 128
+  dropout: 0.0
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  freeze_base: true
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_stage2_frozen_from_ep5_d2v_lw_all_2m_2e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  init_checkpoint: outputs/text_data2vec_from_ep5_layerwise_all_2m_2e/epoch_001.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 250
+  objective_gradient_diagnostic_layers:
+  - 0
+  - 2
+  - 4
+  - 7
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  shared_jepa_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  modulewise_jepa_mode: none
+  modulewise_jepa_modules:
+  - out_proj
+  - mlp.3
+  modulewise_hsic_enabled: true
+  modulewise_hsic_gradient_ratio: 0.05
+  modulewise_hsic_update_every: 100
+  modulewise_hsic_ema_decay: 0.95
+  modulewise_hsic_min_weight: 0.0001
+  modulewise_hsic_max_weight: 10.0
+  modulewise_hsic_warmup_steps: 1000
+  modulewise_hsic_max_tokens: 512
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_dense_private_stage2
+  run_name: text_stage2_frozen_from_ep5_d2v_lw_all_2m_2e
+  tags:
+  - stage2
+  - text-only
+  - dense-shared
+  - private-lora-128
+  - frozen-trunk
+  - hsic-all-layers
+  - diffusion-only
+  - init-from-data2vec-layerwise-all
+  - 2m-captions
+  - two-epochs

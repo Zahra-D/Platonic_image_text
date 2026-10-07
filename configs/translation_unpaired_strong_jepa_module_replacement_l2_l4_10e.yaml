@@ -1,0 +1,103 @@
+# Strict module-level shared replacement.  One soft target-to-condition token
+# assignment per layer resamples the condition's native shared qkv/out/MLP
+# deltas and substitutes them for every target shared delta at L2-L4.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+lora:
+  train_mode: lora
+  rank: 384
+  alpha: 256
+  dropout: 0.0
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+diffusion: {objective: both, eps: 1.0e-3, unweighting: false}
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  epochs: 10
+  lr: 1.0e-4
+  shared_lora_lr: 5.0e-5
+  private_lora_lr: 1.0e-4
+  embedding_lr: 5.0e-5
+  shared_only_epochs: 0
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  init_checkpoint: outputs/pretraining_unpaired_lora_middle_l2_l4_strong_balanced_normalized_jepa_sigreg_absolute_70e/best.pt
+  output_dir: outputs/translation_unpaired_strong_jepa_module_replacement_l2_l4_10e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  max_train_samples: null
+  max_steps: null
+  resume: null
+  seed: 13
+alignment:
+  gradient_balance_enabled: true
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+  shared_gradient_diagnostics: true
+  gradient_diagnostics_samples_per_tensor: 64
+  objective_gradient_diagnostics_every: 500
+  objective_gradient_diagnostic_layers: [2, 3, 4]
+  modality_adversarial_enabled: false
+  sigreg_enabled: true
+  sigreg_per_layer: true
+  sigreg_layers: [2, 3, 4]
+  sigreg_start_epoch: 0
+  sigreg_weight: 0.002
+  sigreg_warmup_steps: 1000
+  sigreg_num_slices: 256
+  sigreg_num_points: 17
+  sigreg_t_max: 3.0
+  shared_jepa_enabled: true
+  shared_jepa_layers: [2, 3, 4]
+  shared_jepa_loss: normalized_mse
+  shared_jepa_start_epoch: 0
+  shared_jepa_weight: 0.5
+  shared_jepa_text_weight: 0.5
+  shared_jepa_image_weight: 2.5
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 3.0e-4
+translation: {enabled: true, mode: module_replacement, layers: [2, 3, 4], heads: 6, dropout: 0.0, lr: 1.0e-4}
+backtranslation:
+  enabled: true
+  start_epoch: 0
+  every_n_microsteps: 20
+  batch_size: 8
+  generation_steps: 24
+  temperature: 1.0
+  reveal_order: random
+  min_confidence: 0.0
+  cycle_weight: 0.5
+  pseudo_align_weight: 0.1
+  pseudo_align_loss: contrastive
+  pseudo_align_temperature: 0.07
+  warmup_steps: 1000
+evaluation:
+  paired_enabled: true
+  paired_max_samples: 512
+  mask_ratios: [0.5, 0.75, 1.0]
+  control_ratios: [0.75, 1.0]
+  selection_metric: paired_t1_matched
+generate: {num_samples: 4, num_steps: 50, temperature: 1.0, reveal_order: random}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_shared_lora_alignment
+  entity: zahra-delbari-university-of-bern
+  group: translation
+  run_name: translation_unpaired_strong_jepa_module_replacement_l2_l4_10e
+  tags: [translation, unpaired, cycle-translation, lora, tri-lora, no-base, no-modality-embedding, learned-absolute-position, module-level-shared-replacement, target-length, soft-permutation, shared-qkv-replacement, shared-mlp-replacement, middle-layers, l2-l4, strong-jepa, normalized-jepa, sigreg, sigreg-per-layer, random-reveal, backtranslation, contrastive-pseudo-alignment]

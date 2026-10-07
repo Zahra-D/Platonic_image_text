@@ -1,0 +1,81 @@
+# Strict no-base Tri-LoRA on unpaired data.  L2-normalized DANN begins at epoch 0.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: lora
+  rank: 384
+  alpha: 256
+  dropout: 0.0
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+diffusion: {objective: both, eps: 1.0e-3, unweighting: false}
+train:
+  batch_size: 256
+  gradient_accumulation_steps: 1
+  epochs: 70
+  lr: 3.0e-4
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  shared_only_epochs: 0
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/pretraining_unpaired_lora_absolute_dann_70e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  max_train_samples: null
+  max_steps: null
+  resume: null
+  seed: 13
+alignment:
+  gradient_balance_enabled: true
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+  shared_gradient_diagnostics: true
+  gradient_diagnostics_samples_per_tensor: 64
+  modality_adversarial_enabled: true
+  modality_adversarial_start_epoch: 0
+  modality_adversarial_weight: 0.1
+  modality_adversarial_grl_lambda: 1.0
+  modality_adversarial_representation_normalization: l2
+  modality_adversarial_warmup_steps: 1000
+  modality_discriminator_hidden: 128
+  modality_discriminator_lr: 3.0e-4
+evaluation:
+  paired_enabled: true
+  paired_max_samples: 512
+  mask_ratios: [0.5, 0.75, 1.0]
+  control_ratios: [0.75, 1.0]
+  selection_metric: paired_t1_matched
+generate: {num_samples: 4, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_shared_lora_alignment
+  entity: zahra-delbari-university-of-bern
+  group: pretrained
+  run_name: pretraining_unpaired_lora_absolute_dann_70e
+  tags: [pretraining, unpaired, lora, tri-lora, no-base, trainable-shared-bias, no-modality-embedding, learned-absolute-position, no-stage0, dann, dann-from-start, l2-dann, epochwise-derangement]

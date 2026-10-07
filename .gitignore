@@ -1,0 +1,17 @@
+# Run artefacts and large data -- copy these to the cluster separately, not via git
+outputs/
+wandb/
+external_checkpoints/
+data/ms_coco_2017/
+logs/
+*.pt
+*.pth
+*.ckpt
+*.npz
+*.npy
+
+# Python / editor noise
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.DS_Store

@@ -1,0 +1,79 @@
+# Image-only gated-predictor layerwise EMA-JEPA + HSIC (best text recipe).
+# JEPA gradient ratio calibrated to 10%, the median the text winner realized.
+# HSIC gradient ratio 5%, the nominal target the text configs asked for.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: image_only
+  balanced_modalities: false
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+diffusion: {objective: image, eps: 1.0e-3, unweighting: false, full_mask_probability: 0.0}
+lora: {train_mode: lora, rank: 384, alpha: 256, dropout: 0.0, target_modules: [qkv, out_proj, mlp.0, mlp.3]}
+train:
+  batch_size: 64
+  epochs: 4
+  lr: 3.0e-4
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  shared_only_epochs: 0
+  output_dir: outputs/image_module_jepa_layerwise_gated_hsic_strong_1_2m_4e
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 250
+  objective_gradient_diagnostic_layers: [2, 3, 4]
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_layers: [2, 3, 4]
+  shared_jepa_loss: normalized_mse
+  shared_jepa_start_epoch: 0
+  shared_jepa_weight: 0.5
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 3.0e-4
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_dynamic_weight: true
+  shared_jepa_gradient_ratio: 0.10
+  shared_jepa_dynamic_ema_decay: 0.95
+  shared_jepa_dynamic_min_weight: 1.0e-4
+  shared_jepa_dynamic_max_weight: 50.0
+  modulewise_jepa_mode: layerwise
+  modulewise_jepa_gated_predictor: true
+  modulewise_jepa_modules: [out_proj, mlp.3]
+  modulewise_jepa_gradient_modules: [qkv, out_proj, mlp.0, mlp.3]
+  modulewise_hsic_enabled: true
+  modulewise_hsic_gradient_ratio: 0.05
+  modulewise_hsic_update_every: 100
+  modulewise_hsic_ema_decay: 0.95
+  modulewise_hsic_min_weight: 1.0e-4
+  modulewise_hsic_max_weight: 50.0
+  modulewise_hsic_warmup_steps: 1000
+  modulewise_hsic_max_tokens: 512
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: image_only_1_2m_4epoch
+  run_name: image_module_jepa_layerwise_gated_hsic_strong_1_2m_4e
+  tags: [pretraining, image-only, lora, tri-lora, no-base, ema-teacher, modulewise-jepa, layerwise-teacher-target, gated-shared-gradient, predictor-retained, hsic, calibrated-jepa-gradient, calibrated-hsic, hsic-strong, 1_2m-images, four-epochs]

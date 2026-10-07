@@ -1,0 +1,133 @@
+# Stage 2 on the layerwise trunk with the trunk TRAINABLE -- the missing cell.
+#
+# The 2x2 is {frozen, trainable} x {averaged trunk, layerwise trunk}, and this
+# is the fourth. It matters because the trainable variant is the only stage-2
+# configuration that *improved* a shared route rather than preserving it: on the
+# averaged trunk the shared route went from -0.76/+0.293 to +0.36/+0.433 when
+# the trunk was allowed to train alongside the private branch.
+#
+# The layerwise trunk starts far higher (+0.75/+0.527, the best representation
+# in the study). Freezing it preserves exactly that, by construction. The open
+# question this run answers: does diffusion + HSIC with a private branch push it
+# higher still, or does letting the trunk move destroy what the layerwise
+# data2vec phase built?
+#
+# Evaluate it with --ablate-private: with the trunk trainable the shared route is
+# no longer identical to its stage-1 parent, so the trunk-only read-out is the
+# measurement that matters.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense_private
+  rank: 384
+  private_rank: 128
+  alpha: 128
+  dropout: 0.0
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  freeze_base: false
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_dense_private_trainable_hsic_from_d2v_lw_all_2m_2e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  init_checkpoint: outputs/text_data2vec_from_dense_layerwise_all_2m_2e/epoch_001.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 250
+  objective_gradient_diagnostic_layers:
+  - 0
+  - 2
+  - 4
+  - 7
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  shared_jepa_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  modulewise_jepa_mode: none
+  modulewise_jepa_modules:
+  - out_proj
+  - mlp.3
+  modulewise_hsic_enabled: true
+  modulewise_hsic_gradient_ratio: 0.05
+  modulewise_hsic_update_every: 100
+  modulewise_hsic_ema_decay: 0.95
+  modulewise_hsic_min_weight: 0.0001
+  modulewise_hsic_max_weight: 10.0
+  modulewise_hsic_warmup_steps: 1000
+  modulewise_hsic_max_tokens: 512
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_dense_private_stage2
+  run_name: text_dense_private_trainable_hsic_from_d2v_lw_all_2m_2e
+  tags:
+  - stage2
+  - text-only
+  - dense-shared
+  - private-lora-128
+  - trainable-trunk
+  - hsic-all-layers
+  - diffusion-only
+  - init-from-data2vec-layerwise-all
+  - 2m-captions
+  - two-epochs

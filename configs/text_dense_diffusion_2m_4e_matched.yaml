@@ -1,0 +1,54 @@
+# Dense text-only diffusion control matched to the modulewise EMA-JEPA + HSIC
+# four-run sweep.  It uses the same corpus, architecture, optimizer schedule,
+# effective batch, validation set, and seed, while deliberately omitting all
+# LoRA routes and representation-learning auxiliary objectives.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+lora: {train_mode: dense}
+diffusion: {objective: text, eps: 1.0e-3, unweighting: false, full_mask_probability: 0.0}
+train:
+  # Same nominal global batch as the four LoRA runs: 64 × 4 = 256.
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 4
+  lr: 3.0e-4
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_dense_diffusion_2m_4e_matched
+  log_every: 10
+  eval_every: 1
+  # At every completed epoch the trainer saves epoch_NNN.pt and last.pt;
+  # best.pt is updated whenever fixed validation improves.
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260915
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_modulewise_ema_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: text_modulewise_ema_jepa_hsic_2m_4epoch
+  run_name: text_dense_diffusion_2m_4e_matched
+  tags: [pretraining, text-only, dense, no-modality-embedding, learned-absolute-position, diffusion-only, no-lora, no-jepa, no-hsic, 2m-captions, four-epochs, global-batch-256, matched-control]

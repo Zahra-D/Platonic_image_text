@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="960" viewBox="0 0 1600 960" role="img" aria-labelledby="title desc">
+  <title id="title">Dense multimodal forward pass</title>
+  <desc id="desc">Text and image tokens both pass through the same learned dense Transformer weights.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f8fafc}.title{font:700 42px Arial,sans-serif;fill:#102a43}.sub{font:24px Arial,sans-serif;fill:#486581}.h{font:700 27px Arial,sans-serif;fill:#102a43}.t{font:22px Arial,sans-serif;fill:#243b53}.small{font:19px Arial,sans-serif;fill:#486581}.box{fill:#fff;stroke:#bcccdc;stroke-width:3}.textbox{fill:#edf2ff;stroke:#5272cf;stroke-width:3}.imagebox{fill:#fff0e6;stroke:#da7b28;stroke-width:3}.dense{fill:#e7f8f1;stroke:#23856d;stroke-width:4}.out{fill:#f2e8ff;stroke:#8554b7;stroke-width:3}.note{fill:#fff8db;stroke:#c99716;stroke-width:3}.arrow{stroke:#526d82;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#526d82"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="960"/>
+  <text class="title" x="800" y="68" text-anchor="middle">Dense multimodal model: one learned weight set for everything</text>
+  <text class="sub" x="800" y="108" text-anchor="middle">There is no branch selection. Text and image use exactly the same Transformer matrices.</text>
+
+  <rect class="textbox" x="90" y="210" rx="20" width="300" height="120"/>
+  <text class="h" x="240" y="258" text-anchor="middle">Text forward</text>
+  <text class="t" x="240" y="296" text-anchor="middle">&lt;text&gt; + word tokens</text>
+  <rect class="imagebox" x="90" y="590" rx="20" width="300" height="120"/>
+  <text class="h" x="240" y="638" text-anchor="middle">Image forward</text>
+  <text class="t" x="240" y="676" text-anchor="middle">&lt;image&gt; + VQ code tokens</text>
+
+  <rect class="box" x="490" y="170" rx="20" width="340" height="190"/>
+  <text class="h" x="660" y="220" text-anchor="middle">Input representation</text>
+  <text class="t" x="660" y="265" text-anchor="middle">token embedding + position embedding</text>
+  <text class="small" x="660" y="307" text-anchor="middle">(+ optional modality embedding)</text>
+  <rect class="box" x="490" y="550" rx="20" width="340" height="190"/>
+  <text class="h" x="660" y="600" text-anchor="middle">Input representation</text>
+  <text class="t" x="660" y="645" text-anchor="middle">token embedding + position embedding</text>
+  <text class="small" x="660" y="687" text-anchor="middle">(+ optional modality embedding)</text>
+
+  <rect class="dense" x="960" y="260" rx="28" width="440" height="420"/>
+  <text class="h" x="1180" y="326" text-anchor="middle">Same dense Transformer</text>
+  <text class="h" x="1180" y="366" text-anchor="middle">for text and image</text>
+  <line x1="1005" y1="400" x2="1355" y2="400" stroke="#7bb9a8" stroke-width="2"/>
+  <text class="t" x="1180" y="455" text-anchor="middle">Each selected linear layer:</text>
+  <text class="h" x="1180" y="510" text-anchor="middle">y = W x + b</text>
+  <text class="t" x="1180" y="565" text-anchor="middle">W and b are trainable</text>
+  <text class="t" x="1180" y="605" text-anchor="middle">one common parameter set</text>
+  <text class="small" x="1180" y="648" text-anchor="middle">qkv · out_proj · MLP layers</text>
+
+  <rect class="out" x="1430" y="368" rx="18" width="130" height="190"/>
+  <text class="h" x="1495" y="425" text-anchor="middle">Output</text>
+  <text class="t" x="1495" y="468" text-anchor="middle">hidden</text>
+  <text class="t" x="1495" y="503" text-anchor="middle">states</text>
+  <text class="small" x="1495" y="540" text-anchor="middle">→ logits</text>
+
+  <path class="arrow" d="M390 270 H490"/>
+  <path class="arrow" d="M390 650 H490"/>
+  <path class="arrow" d="M830 265 H925 Q960 265 960 315"/>
+  <path class="arrow" d="M830 645 H925 Q960 645 960 625"/>
+  <path class="arrow" d="M1400 470 H1430"/>
+
+  <rect class="note" x="130" y="805" rx="16" width="1340" height="88"/>
+  <text class="t" x="800" y="842" text-anchor="middle">Dense mode can learn modality-specific behavior inside one shared parameter set, but it has no explicit shared/private LoRA decomposition.</text>
+  <text class="small" x="800" y="875" text-anchor="middle">The text/image distinction comes only from their tokens, context, and optional modality embedding—not from a routed linear branch.</text>
+</svg>

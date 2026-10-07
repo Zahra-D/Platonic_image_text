@@ -1,0 +1,98 @@
+# Paired dense baseline -- the reference the unpaired models are aiming at.
+#
+# Same architecture, data and budget as `multimodal_unpaired_dense_1_2m_4e`,
+# with one difference: `data.mode = paired`, so each training sequence carries a
+# caption **and its own image** together and the model can attend across them.
+# Every unpaired run in this study deliberately destroys that correspondence
+# with a derangement; this one keeps it.
+#
+# Why it exists. The modality metrics all sit at their floor for every unpaired
+# model measured so far: paired retrieval R@1 at chance (0.1%) everywhere, and
+# modality AUC at 1.000 for everything except the SIGReg run, which reached
+# 0.557 only by flattening both modalities into structureless distributions.
+# Without a model that has actually seen correspondence there is no way to tell
+# whether those floors are a property of the task, the metric, or the training
+# signal. This run supplies that reference point.
+#
+# A paired sequence is ~92 caption tokens + 384 image tokens, so the microbatch
+# is halved to 32 and accumulation doubled to 8, keeping the effective batch at
+# 256 as in every other run.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_pairs_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_pairs_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: paired
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: both
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+lora:
+  train_mode: dense
+train:
+  batch_size: 32
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 8
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/multimodal_paired_dense_1_2m_4e
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: multimodal_paired_1_2m
+  run_name: multimodal_paired_dense_1_2m_4e
+  tags:
+  - paired
+  - both-modalities
+  - dense
+  - diffusion-only
+  - from-scratch
+  - 1_2m
+  - four-epochs
+  - upper-bound

@@ -1,0 +1,48 @@
+# Stage-1 VQ-VAE config — single source of truth for both train_vqvae.py and
+# eval_reconstructions.py. Every value here is a CLI flag's default; pass the
+# flag on the command line to override anything for a single run (e.g.
+# `--batch-size 64`), or point --config at a different file entirely.
+
+# ── Data ──────────────────────────────────────────────────────────────────
+data:
+  train_dir: ~/Omni/data/clevr/train    # split dir: expects images.jsonl + images/
+  val_dir: ~/Omni/data/clevr/val
+  image_size: [64, 96]                  # [H, W], aspect-preserving for CLEVR's 480x320
+
+# ── Model architecture ───────────────────────────────────────────────────
+model:
+  num_codes: 512          # codebook size K
+  embed_dim: 64            # codebook vector dim (= encoder output channels)
+  commitment_cost: 0.25    # beta in the commitment loss
+  ema_decay: 0.99          # codebook EMA update decay
+
+# ── Training ──────────────────────────────────────────────────────────────
+train:
+  batch_size: 1024
+  epochs: 100
+  lr: 8.5e-4               # sqrt-scaled from 3e-4 @ bs128 (GPU was only ~60% utilized at bs128)
+  num_workers: 8
+  amp: bf16                # none | bf16
+  output_dir: outputs/vqvae_training
+  log_every: 20           # steps between train log lines
+  eval_every: 1             # epochs between val passes + reconstruction grids
+  save_every: 1             # epochs between checkpoint writes
+  resume: null              # path to a last.pt/best.pt to resume from
+  max_train_samples: null   # truncate train set (smoke tests only)
+  max_steps: null           # stop after N optimizer steps (smoke tests only)
+
+# ── Stage-1 eval gate (eval_reconstructions.py) ──────────────────────────
+eval:
+  batch_size: 128
+  num_workers: 8
+  max_samples: 2000         # cap val images scored (full val split is 15k)
+  grid_samples: 32          # images rendered in the contact sheet
+  output_dir: outputs/eval
+
+# ── Weights & Biases ──────────────────────────────────────────────────────
+wandb:
+  enabled: true
+  project: Platonic_baseline_CELVR
+  entity: zahra-delbari-university-of-bern  # your individual team (not the shared SwissAI_DLM team)
+  group: vqvae_training       # groups train + eval-gate runs together in the W&B UI
+  run_name: null              # null = auto-generated from key hyperparams + timestamp

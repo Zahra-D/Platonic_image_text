@@ -1,0 +1,110 @@
+# Unpaired multimodal diffusion: shared dense trunk + modality-private LoRA,
+# on the full single-modality corpora.
+#
+# Text: the 2M caption corpus of text_dense_diffusion_2m_*; images: the 2.53M
+# image corpus of image_dense_diffusion_2_5m_40e. The two corpora are separate,
+# so no caption corresponds to any image. Each epoch pairs every caption with a
+# random image from a fresh 2M-of-2.53M subset as an arbitrary carrier; the
+# trainer runs two separate forwards per step. From scratch, 40 epochs.
+#
+# Gradient routing (dense_private, diffusion_private_only=false):
+#   * the dense trunk receives the diffusion gradient of BOTH modalities;
+#   * text tokens add a text-private LoRA write, image tokens an image-private
+#     one (rank 128, alpha 128, on qkv / out_proj / mlp.0 / mlp.3 of every
+#     block), so each private adapter only ever sees its own modality.
+# Private B matrices start at zero, so step 0 is exactly the dense model.
+#
+# Every epoch is saved so I-JEPA / LeJEPA can later branch from any depth.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  train_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: both
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+lora:
+  train_mode: dense_private
+  rank: 384
+  private_rank: 128
+  alpha: 128
+  dropout: 0.0
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  freeze_base: false
+  diffusion_private_only: false
+train:
+  batch_size: 256
+  epochs: 40
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 1
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/mm_unpaired_dense_private_lora_r128_2m_40e
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: multimodal_unpaired_private_lora
+  run_name: mm_unpaired_dense_private_lora_r128_2m_40e
+  tags:
+  - unpaired
+  - both-modalities
+  - dense-private
+  - private-lora-r128
+  - diffusion-only
+  - from-scratch
+  - 2m-text-2_5m-images
+  - separate-corpora
+  - forty-epochs

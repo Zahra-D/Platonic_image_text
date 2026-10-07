@@ -1,0 +1,78 @@
+# Full pure-JEPA scratch run promoted from the matched fidelity pilots.
+# Selection is by d_semantic/d_binding probes, never diffusion validation.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+lora: {train_mode: dense}
+diffusion: {objective: text, eps: 0.001, unweighting: false, full_mask_probability: 0.0, weight: 0.0, train_fixed_t: 0.15, bert_replacement: true, mask_span_min: 1, mask_span_max: 1}
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 4
+  lr: 0.0002
+  lr_schedule: data2vec_tristage
+  lr_warmup_fraction: 0.05
+  lr_hold_fraction: 0.80
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_jepa_scratch_fidelity_dprime_bert15_k4_2m_4e
+  log_every: 20
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  probe_every_steps: 4000
+  probe_type: semantic_dprime
+  probe_num_worlds: 2000
+  probe_bootstrap: 1000
+  probe_sublayer_layers: [0, 1, 2, 3, 4, 5, 6, 7]
+  probe_gpu: 2
+  probe_keep_checkpoints: true
+  seed: 20260922
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 0
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0002
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 100000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_top_k: 4
+  data2vec_beta: 4.0
+  data2vec_weight: 1.0
+  data2vec_mode: average
+  data2vec_layers: [4, 5, 6, 7]
+  data2vec_target_type: ffn_output
+  data2vec_share_input_encoder: true
+  data2vec_token_weight: 1.0
+  data2vec_global_weight: 0.0
+  data2vec_variance_weight: 0.0
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: pure_jepa_scratch_fidelity_dprime_full
+  run_name: text_jepa_scratch_fidelity_dprime_bert15_k4_2m_4e
+  tags: [text-only, pure-jepa, from-scratch, full-2m-4e, ffn-target, shared-input-encoder, tristage-lr, semantic-dprime, binding-dprime, bert15, k4]

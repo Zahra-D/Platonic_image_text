@@ -1,0 +1,99 @@
+# Faithful data2vec on the dense text model: the ONLY objective is regressing
+# the EMA teacher's averaged, LayerNorm-ed block outputs at masked positions
+# (diffusion.weight = 0).  Stage 1 of the dense-shared plan: if the published
+# recipe produces good representations here, the shared/private variant can be
+# built on it.  Masking is this project's t ~ U(0,1) corruption, so stage 2
+# remains comparable; data2vec itself uses fixed-rate span masking.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_data2vec_faithful_dense_2m_4e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 15000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_data2vec_faithful_2m_4epoch
+  run_name: text_data2vec_faithful_dense_2m_4e
+  tags:
+  - pretraining
+  - text-only
+  - dense
+  - data2vec-faithful
+  - hidden-state-target
+  - all-blocks-averaged
+  - no-diffusion-loss
+  - ema-ramp
+  - 2m-captions
+  - four-epochs

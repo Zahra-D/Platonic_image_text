@@ -1,0 +1,102 @@
+# Staged no-base Tri-LoRA: 10 shared-only epochs, then 40 shared+private epochs.
+# Small from-scratch CLEVR counterpart of Omni's
+# configs/dream7b_unpaired_text_image_lora.yaml.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+
+lora:
+  train_mode: lora
+  architecture: tri
+  # Do not retain a frozen random W; the shared/private low-rank branches are
+  # the complete transformation for every injected Linear layer.
+  delete_base_weights: true
+  # Match Omni using D=d_model=384: 256 shared + 128 per modality-private branch.
+  # As in Omni, alpha equals the shared rank, so the common branch scale is 1.
+  rank: 384
+  alpha: 256
+  dropout: 0.0
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+
+diffusion:
+  objective: both
+  eps: 1.0e-3
+  weight_by_t: false
+
+train:
+  # Total batch: 128 independent text + 128 independent image examples.
+  batch_size: 256
+  gradient_accumulation_steps: 1
+  epochs: 50
+  lr: 3.0e-4
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  shared_only_epochs: 10
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/multimodal_unpaired_lora_shared_stage0_10e_no_base_correct_dataset_visible_check
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  max_train_samples: null
+  max_steps: null
+  resume: null
+  seed: 13
+
+alignment:
+  gradient_balance_enabled: true
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+  shared_gradient_diagnostics: true
+  gradient_diagnostics_samples_per_tensor: 64
+  # DANN-style optional modality invariance on the shared Tri-LoRA activation.
+  modality_adversarial_enabled: false
+  modality_adversarial_weight: 0.1
+  modality_adversarial_grl_lambda: 1.0
+  modality_adversarial_warmup_steps: 1000
+  modality_discriminator_hidden: 128
+  modality_discriminator_lr: 3.0e-4
+
+evaluation:
+  paired_enabled: true
+  paired_max_samples: 512
+  mask_ratios: [0.5, 0.75, 1.0]
+  control_ratios: [0.75, 1.0]
+
+generate:
+  num_samples: 4
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+
+wandb:
+  enabled: true
+  project: Platonic_baseline_CELVR
+  entity: zahra-delbari-university-of-bern
+  group: unpaired_text_image_tri_lora_shared_stage0_10e_no_base_correct_dataset_visible_check
+  run_name: unpaired_lora_no_adversarial_shared_stage0_10e_no_base_correct_dataset_visible_check

@@ -1,0 +1,89 @@
+# Dense unpaired multimodal baseline on the 1.2M set.
+#
+# One dense model trained on both modalities with NO pairing: the dataset draws
+# an independent caption and an independent image per item (a derangement
+# guarantees a caption is never carried with its own image), and the trainer
+# runs two separate forwards. Every layer is shared between the modalities
+# simply because there is only one set of weights.
+#
+# Captions come from `train_pairs_human.jsonl`, rendered from each image row's
+# `world` with the same generator the text corpus used; row order and
+# image_path are untouched, so the existing token cache stays valid.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_pairs_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_pairs_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: both
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+lora:
+  train_mode: dense
+train:
+  batch_size: 64
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/multimodal_unpaired_dense_1_2m_4e
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: multimodal_unpaired_1_2m
+  run_name: multimodal_unpaired_dense_1_2m_4e
+  tags:
+  - unpaired
+  - both-modalities
+  - dense
+  - diffusion-only
+  - from-scratch
+  - 1_2m
+  - four-epochs

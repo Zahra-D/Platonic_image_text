@@ -1,0 +1,64 @@
+# Stage-2 masked-diffusion Transformer config. Mirrors configs/vqvae.yaml's
+# conventions: every value here is a CLI flag's default, overridable per-run.
+
+# ── Tokenizer (frozen VQ-VAE, not trained here) ────────────────────────────
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+
+# ── Data ──────────────────────────────────────────────────────────────────
+data:
+  train_dir: ~/Omni/data/clevr/train
+  val_dir: ~/Omni/data/clevr/val
+  image_size: [64, 96]
+  token_cache_dir: outputs/token_cache  # built once by pretokenize_clevr.py
+
+# ── Model ───────────────────────────────────────────────────────────────
+model:
+  grid_size: [16, 24]      # token grid from the VQ-VAE encoder -> 384 tokens/image
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  pos_embed_type: absolute  # absolute | rope
+
+# ── Diffusion (masking) process ────────────────────────────────────────
+diffusion:
+  eps: 1.0e-3               # min t; avoids t=0 (division by zero in the 1/t loss weight)
+  weight_by_t: true         # true = theoretically-correct 1/t-weighted NELBO; false = plain
+                             # unweighted CE (matches ~/Omni's actual Dream training)
+
+# ── Training ────────────────────────────────────────────────────────────
+train:
+  batch_size: 256
+  epochs: 100
+  lr: 3.0e-4
+  num_workers: 8
+  amp: bf16                 # none | bf16
+  output_dir: outputs/d3pm_training
+  log_every: 20             # steps between train log lines
+  eval_every: 5              # epochs between fixed-noise validation + sample grids
+  val_max_samples: 2048      # validation subset; full 15k is unnecessarily slow every eval
+  val_timesteps: [0.5, 0.75, 0.9, 1.0]
+  save_every: 1              # epochs between checkpoint writes
+  resume: null                # path to a last.pt/best.pt to resume from
+  max_train_samples: null     # truncate train set (smoke tests only)
+  max_steps: null             # stop after N optimizer steps (smoke tests only)
+
+# ── Sample generation (periodic during training + generate_samples.py) ──
+generate:
+  num_samples: 8
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence   # confidence | random -- which masked positions get revealed each step
+  output_dir: outputs/d3pm_eval
+
+# ── Weights & Biases ──────────────────────────────────────────────────────
+wandb:
+  enabled: true
+  project: Platonic_baseline_CELVR
+  entity: zahra-delbari-university-of-bern
+  group: d3pm_training
+  run_name: null              # null = auto-generated from key hyperparams + timestamp

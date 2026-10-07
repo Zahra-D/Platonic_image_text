@@ -1,0 +1,84 @@
+# From-scratch bidirectional paired CLEVR pretraining with Tri-LoRA.
+# Random dense attention/MLP matrices are frozen; LoRA, embeddings, norms, and
+# the output head train. The full checkpoint is saved because the frozen random
+# base is part of this particular model initialization.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache
+  mode: paired
+  max_text_length: 192
+
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+
+lora:
+  train_mode: lora
+  architecture: tri           # shared + text-private + image-private branches
+  delete_base_weights: false  # scratch run has no SVD reconstruction; retain frozen random base
+  # Match Omni using D=d_model=384: 256 shared + 128 per modality-private branch.
+  # As in Omni, alpha equals the shared rank, so the common branch scale is 1.
+  rank: 384
+  alpha: 256
+  dropout: 0.05
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+
+diffusion:
+  objective: both
+  eps: 1.0e-3
+  weight_by_t: false
+
+train:
+  # 128 paired rows expose 128 text + 128 image examples per optimizer step.
+  batch_size: 128
+  epochs: 100
+  lr: 3.0e-4
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  weight_decay: 0.01
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/multimodal_lora
+  log_every: 20
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 1024
+  max_train_samples: null
+  max_steps: null
+  resume: null
+  seed: 13
+  gradient_accumulation_steps: 1
+  max_grad_norm: 1.0
+
+alignment:
+  gradient_balance_enabled: false
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+
+generate:
+  num_samples: 4
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+
+wandb:
+  enabled: false
+  project: Platonic_baseline_CELVR
+  entity: zahra-delbari-university-of-bern
+  group: multimodal_lora
+  run_name: null

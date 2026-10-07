@@ -1,0 +1,123 @@
+# The best stage-1 configuration, run FROM SCRATCH.
+#
+# Byte-for-byte the settings of
+# configs/text_data2vec_from_dense_layerwise_all_2m_2e.yaml -- data2vec with
+# each of the 8 blocks predicting its own parameter-free LayerNorm-ed EMA
+# target through its own head, diffusion.weight = 0 -- with exactly one
+# intended change: no init_checkpoint, so the trunk starts random. Epochs are
+# raised from 2 to 4, which gives this run *more* training than the run it is
+# compared against, so a poor result cannot be blamed on the budget.
+#
+# Why this run exists: the two from-scratch layerwise runs that failed
+# (d_semantic -1.72 and -1.27, at chance on hard retrieval) differed from the
+# best from-dense run in two ways at once, initialization AND masking -- they
+# used contiguous window masking, while this objective was developed with the
+# repo's per-sample random-t schedule. This run holds the masking fixed at
+# random-t so that initialization is the only variable, and answers whether
+# layerwise targeting fails from scratch in general or only under window
+# masking.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_data2vec_scratch_layerwise_all_randt_2m_4e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 5000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_data2vec_scratch
+  run_name: text_data2vec_scratch_layerwise_all_randt_2m_4e
+  tags:
+  - text-only
+  - dense
+  - data2vec-faithful
+  - hidden-state-target
+  - data2vec-layerwise
+  - blocks-0-7
+  - no-diffusion-loss
+  - ema-ramp
+  - from-scratch
+  - random-t-masking
+  - 2m-captions
+  - four-epochs

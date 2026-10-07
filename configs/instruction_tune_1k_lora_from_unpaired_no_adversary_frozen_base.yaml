@@ -1,0 +1,74 @@
+# Low-paired-data study: Tri-LoRA initialized from unpaired non-adversarial pretraining.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: paired
+  balanced_modalities: true
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1}
+lora:
+  train_mode: lora
+  architecture: tri
+  delete_base_weights: false
+  rank: 384
+  alpha: 256
+  dropout: 0.0
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+diffusion: {objective: both, eps: 1.0e-3, weight_by_t: false, full_mask_probability: 0.15}
+train:
+  batch_size: 50
+  gradient_accumulation_steps: 5
+  # Four optimizer steps/epoch for the 1,000-pair subset; stop at step 10,000.
+  epochs: 2500
+  lr: 1.0e-4
+  shared_lora_lr: 7.5e-5
+  private_lora_lr: 1.0e-4
+  embedding_lr: 1.0e-4
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  init_checkpoint: outputs/multimodal_unpaired_lora_correct_dataset_visible_check/best.pt
+  resume: null
+  output_dir: outputs/instruction_tune_1k_pairs_tri_lora_from_unpaired_no_adversary_frozen_base_pure_paired_10k_steps
+  max_train_samples: 1000
+  subset_seed: 20260826
+  val_max_samples: 2048
+  seed: 13
+  log_every: 20
+  eval_every: 50
+  save_every: 50
+  max_steps: 10000
+alignment:
+  # Pure paired fine-tuning: use only the two supervised conditional losses.
+  gradient_balance_enabled: false
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+  shared_gradient_diagnostics: false
+  gradient_diagnostics_samples_per_tensor: 64
+  modality_adversarial_enabled: false
+backtranslation:
+  enabled: false
+evaluation:
+  paired_enabled: true
+  paired_max_samples: 512
+  mask_ratios: [0.5, 0.75, 1.0]
+  control_ratios: [0.75, 1.0]
+  step_every: 0
+  selection_metric: paired_t1_matched
+generate: {num_samples: 4, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_baseline_CELVR
+  entity: zahra-delbari-university-of-bern
+  group: instruction_tuning_1k_pure_paired_10k_steps_seed20260826
+  run_name: 1k_pairs__tri_lora_from_unpaired_no_adversary__frozen_base__pure_paired_10k_steps

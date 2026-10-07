@@ -1,0 +1,57 @@
+# From-scratch bidirectional paired baseline. Each real pair is trained in both
+# text->image and image->text directions. Random target masking is augmented by
+# a 15% probability of a completely masked target modality.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: paired
+  max_text_length: 192
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion: {objective: both, eps: 1.0e-3, unweighting: false, full_mask_probability: 0.15}
+train:
+  batch_size: 32
+  gradient_accumulation_steps: 4
+  epochs: 70
+  lr: 3.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/pretraining_paired_dense_absolute_70e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  max_train_samples: null
+  max_steps: null
+  resume: null
+  seed: 13
+alignment: {gradient_balance_enabled: false, shared_gradient_diagnostics: false, modality_adversarial_enabled: false}
+evaluation:
+  paired_enabled: true
+  paired_max_samples: 512
+  mask_ratios: [0.5, 0.75, 1.0]
+  control_ratios: [0.75, 1.0]
+  selection_metric: paired_t1_matched
+generate: {num_samples: 4, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_shared_lora_alignment
+  entity: zahra-delbari-university-of-bern
+  group: pretrained
+  run_name: pretraining_paired_dense_absolute_70e
+  tags: [pretraining, paired, dense, no-modality-embedding, learned-absolute-position, bidirectional, conditional-masked-modeling, matched-shuffled-null-validation]

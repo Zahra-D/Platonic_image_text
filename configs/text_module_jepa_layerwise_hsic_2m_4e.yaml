@@ -1,0 +1,72 @@
+# Four-epoch text-only modulewise EMA-JEPA: same-layer teacher target with HSIC.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+lora: {train_mode: lora, rank: 384, alpha: 256, dropout: 0.0, target_modules: [qkv, out_proj, mlp.0, mlp.3]}
+diffusion: {objective: text, eps: 1.0e-3, unweighting: false, full_mask_probability: 0.0}
+train:
+  # EMA teacher plus native module activations fit safely as microbatch 64.
+  # Four microbatches are accumulated per optimizer update.
+  batch_size: 64
+  epochs: 4
+  lr: 3.0e-4
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  shared_only_epochs: 0
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_module_jepa_layerwise_hsic_2m_4e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260915
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 250
+  objective_gradient_diagnostic_layers: [2, 3, 4]
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_layers: [2, 3, 4]
+  shared_jepa_loss: normalized_mse
+  shared_jepa_start_epoch: 0
+  shared_jepa_weight: 0.5
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 3.0e-4
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_dynamic_weight: false
+  modulewise_jepa_mode: layerwise
+  modulewise_hsic_enabled: true
+  modulewise_hsic_gradient_ratio: 0.05
+  modulewise_hsic_update_every: 100
+  modulewise_hsic_ema_decay: 0.95
+  modulewise_hsic_min_weight: 1.0e-4
+  modulewise_hsic_max_weight: 1.0
+  modulewise_hsic_warmup_steps: 1000
+  modulewise_hsic_max_tokens: 512
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_modulewise_ema_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: text_modulewise_ema_jepa_hsic_2m_4epoch
+  run_name: text_module_jepa_layerwise_hsic_2m_4e
+  tags: [pretraining, text-only, lora, tri-lora, no-base, no-modality-embedding, learned-absolute-position, ema-teacher, modulewise-jepa, layerwise-teacher-target, out-proj, mlp-down-proj, hsic, adaptive-hsic-weight, 2m-captions, four-epochs]

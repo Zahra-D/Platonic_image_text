@@ -1,0 +1,127 @@
+# Paper LeJEPA (arXiv 2511.08544 + reference code) mirror of image_ijepa_sweep_blk_s15_t45.
+#
+# Same init, data and epochs as image_ijepa_sweep_blk_s15_t45; the objective is replaced by the paper's:
+#   * 2 global crops (30-100% of the content) + 6 local crops (5-30%) per sample,
+#     rectangles on the 16x24 VQ grid / contiguous caption spans, kept tokens
+#     only, at their original positions;
+#   * one network, no EMA teacher, no stop-gradient, no token-level prediction;
+#   * mean-pooled last block -> projector MLP(384, [2048, 2048, 128], BatchNorm);
+#   * invariance: every view's projection regresses the mean of the global views';
+#   * SIGReg per view on the projector output (1024 slices, 17 points), N = 128;
+#   * (1 - lambda) * invariance + lambda * SIGReg, lambda = 0.05.
+# batch 128 x 2 accumulation keeps the effective batch (256) and step count of
+# the reference while giving SIGReg the paper's minimum batch of 128.
+# The backbone (pooled L7), not the projector, is what gets evaluated.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  mode: image_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: image
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+  train_fixed_t: 0.45
+  mask_block_2d: true
+  mask_block_scale:
+  - 0.15
+  - 0.2
+  mask_block_aspect:
+  - 0.75
+  - 1.5
+lora:
+  train_mode: dense
+train:
+  batch_size: 128
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 2
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/image_lejepa_paper_from_dense_ep12_4e
+  probe_every_steps: 0
+  init_checkpoint: outputs/image_dense_diffusion_2_5m_40e/epoch_011.pt
+  gradient_checkpointing: true
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  shared_jepa_enabled: false
+  data2vec_hidden: false
+  shared_jepa_predictor_lr: 0.0003
+  lejepa_views: true
+  lejepa_global_views: 2
+  lejepa_local_views: 6
+  lejepa_global_scale:
+  - 0.3
+  - 1.0
+  lejepa_local_scale:
+  - 0.05
+  - 0.3
+  lejepa_aspect:
+  - 0.75
+  - 1.3333
+  lejepa_projector_hidden: 2048
+  lejepa_projector_dim: 128
+  lejepa_lambda: 0.05
+  sigreg_num_slices: 1024
+  sigreg_num_points: 17
+  sigreg_t_max: 3.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: image_lejepa_paper
+  run_name: image_lejepa_paper_from_dense_ep12_4e
+  tags:
+  - image-only
+  - dense
+  - no-diffusion-loss
+  - from-dense
+  - 1_2m-images
+  - two-epochs
+  - lejepa-paper
+  - multi-crop
+  - projector
+  - sigreg
+  - no-ema-teacher

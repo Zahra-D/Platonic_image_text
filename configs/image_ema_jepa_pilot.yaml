@@ -1,0 +1,84 @@
+# Common image-only EMA-JEPA pilot. CLI overrides select dynamic gradient ratio.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: lora
+  rank: 384
+  alpha: 256
+  dropout: 0.0
+  target_modules: [qkv, out_proj, mlp.0, mlp.3]
+diffusion: {objective: image, eps: 1.0e-3, unweighting: false}
+train:
+  # Image sequences plus the EMA teacher do not fit at 256 microbatch size.
+  # Accumulation preserves a 256-example effective optimizer batch.
+  batch_size: 64
+  epochs: 70
+  lr: 3.0e-4
+  shared_lora_lr: 1.5e-4
+  private_lora_lr: 3.0e-4
+  embedding_lr: 3.0e-4
+  shared_only_epochs: 0
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/image_ema_jepa_fixed_lambda050
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 31
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: true
+  objective_gradient_diagnostics_every: 500
+  objective_gradient_diagnostic_layers: [2, 3, 4]
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_layers: [2, 3, 4]
+  shared_jepa_loss: normalized_mse
+  shared_jepa_start_epoch: 0
+  shared_jepa_weight: 0.5
+  shared_jepa_warmup_steps: 5000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 3.0e-4
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_dynamic_weight: false
+  shared_jepa_gradient_ratio: 0.25
+  shared_jepa_dynamic_ema_decay: 0.95
+  shared_jepa_dynamic_min_weight: 1.0e-4
+  shared_jepa_dynamic_max_weight: 10.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_single_modality_ema_jepa
+  entity: zahra-delbari-university-of-bern
+  group: image_ema_jepa_pilot
+  run_name: image_ema_jepa_fixed_lambda050
+  tags: [pretraining, image-only, lora, tri-lora, no-base, no-modality-embedding, learned-absolute-position, ema-teacher, shared-jepa, normalized-jepa, middle-layers, l2-l4, no-sigreg, fixed-jepa-weight, ema-jepa-pilot]

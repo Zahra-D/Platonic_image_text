@@ -1,0 +1,130 @@
+# LeJEPA mirror of text_ijepa_w4_8_from_dense_ep20_2m_6e: SIGReg in place of the EMA teacher.
+#
+# Identical init, masking, data, schedule and layerwise all-8-block target as
+# text_ijepa_w4_8_from_dense_ep20_2m_6e. Only the anti-collapse mechanism changes:
+#   * no EMA teacher -- the clean view goes through the same network;
+#   * no stop-gradient on the target;
+#   * no parameter-free LayerNorm on the target;
+#   * SIGReg on the pooled clean embedding of every supervised block,
+#     objective (1 - lambda) * prediction + lambda * SIGReg, lambda = 0.05.
+#
+# Why: EMA-teacher I-JEPA leaves the pooled representation in a narrow cone
+# (mean pairwise cosine 0.4-0.97, effective rank ~20-30 of 384). SIGReg pushes
+# the pooled scene vectors toward N(0, I), which by construction has mean
+# cosine ~0. Watch `lejepa_*/pooled_cos` in the log, and `target_spread` for
+# collapse.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+  train_fixed_t: 0.15
+  mask_span_min: 4
+  mask_span_max: 8
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 6
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_lejepa_w4_8_from_dense_ep20_2m_6e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  init_checkpoint: outputs/text_dense_diffusion_2m_20e_continued/epoch_019.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_teacherless: true
+  data2vec_sigreg_weight: 0.05
+  sigreg_num_slices: 1024
+  sigreg_num_points: 17
+  sigreg_t_max: 3.0
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_lejepa
+  run_name: text_lejepa_w4_8_from_dense_ep20_2m_6e
+  tags:
+  - pretraining
+  - text-only
+  - dense
+  - hidden-state-target
+  - no-diffusion-loss
+  - init-from-dense-diffusion
+  - 2m-captions
+  - two-epochs
+  - stage1-variant
+  - data2vec-layerwise
+  - blocks-0-1-2-3-4-5-6-7
+  - lejepa
+  - sigreg
+  - no-ema-teacher
+  - no-stop-gradient
+  - cone-fix

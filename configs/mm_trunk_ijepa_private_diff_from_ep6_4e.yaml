@@ -1,0 +1,140 @@
+# I-JEPA on the SHARED TRUNK of the unpaired shared-trunk + private-LoRA model.
+#
+# Init: outputs/mm_unpaired_dense_private_lora_r128_2m_40e/epoch_005.pt (6 epochs of unpaired diffusion on 2M captions + 2.53M images).
+# Same data / batch (128 captions + 128 images per step) / lr as the base run, 4 epochs.
+# JEPA = layerwise data2vec over all 8 blocks with an EMA teacher (0.999 -> 0.9999
+# over 5000 steps), stop-gradient, parameter-free LayerNorm-ed targets. Images use
+# I-JEPA 2D blocks (15-20% each, 45% hidden); text uses 4-8 token spans (15% hidden).
+# jepa_trunk_only: student and teacher run through the shared trunk alone (private
+# LoRA routes off) -- exactly the model that trunk-only evaluation scores.
+#
+# Variant: B -- trunk I-JEPA + diffusion kept on the full model, with its gradient sent to the
+#   private LoRA only (diffusion_private_only). JEPA shapes the trunk; the private
+#   adapters keep the model generative.
+alignment:
+  gradient_balance_enabled: false
+  modality_adversarial_enabled: false
+  modulewise_hsic_enabled: false
+  modulewise_jepa_mode: none
+  objective_gradient_diagnostics_every: 0
+  shared_gradient_diagnostics: false
+  shared_jepa_enabled: true
+  sigreg_enabled: false
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 5000
+  data2vec_hidden: true
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  jepa_trunk_only: true
+data:
+  balanced_modalities: true
+  caption_field: caption_human
+  max_text_length: 192
+  mode: unpaired
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  train_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  val_text_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+diffusion:
+  eps: 0.001
+  full_mask_probability: 0.0
+  objective: both
+  unweighting: false
+  weight: 1.0
+  train_fixed_t_image: 0.45
+  train_fixed_t_text: 0.15
+  mask_block_2d: true
+  mask_block_scale:
+  - 0.15
+  - 0.2
+  mask_block_aspect:
+  - 0.75
+  - 1.5
+  mask_span_min: 4
+  mask_span_max: 8
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  reveal_order: confidence
+  temperature: 1.0
+lora:
+  alpha: 128
+  diffusion_private_only: true
+  dropout: 0.0
+  freeze_base: false
+  private_rank: 128
+  rank: 384
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  train_mode: dense_private
+model:
+  d_model: 384
+  dropout: 0.1
+  grid_size:
+  - 16
+  - 24
+  mlp_ratio: 4
+  n_heads: 6
+  n_layers: 8
+  use_modality_embeddings: false
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  embed_dim: 64
+  num_codes: 512
+train:
+  amp: bf16
+  batch_size: 256
+  epochs: 4
+  eval_every: 1
+  gradient_accumulation_steps: 1
+  log_every: 10
+  lr: 0.0003
+  max_grad_norm: 50.0
+  num_workers: 8
+  output_dir: outputs/mm_trunk_ijepa_private_diff_from_ep6_4e
+  save_every: 1
+  seed: 20260921
+  val_max_samples: 2048
+  weight_decay: 0.0
+  init_checkpoint: outputs/mm_unpaired_dense_private_lora_r128_2m_40e/epoch_005.pt
+wandb:
+  enabled: true
+  entity: zahra-delbari-university-of-bern
+  group: mm_trunk_jepa
+  project: Platonic_CLEVR_data2vec_faithful
+  run_name: mm_trunk_ijepa_private_diff_from_ep6_4e
+  tags:
+  - unpaired
+  - shared-trunk
+  - trunk-only-jepa
+  - data2vec-layerwise
+  - ema-teacher
+  - from-mm-private-lora-ep6
+  - 2m-text-2_5m-images
+  - private-diffusion

@@ -1,0 +1,57 @@
+# Text masked-diffusion baseline on exactly one COCO caption per train image.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: data/ms_coco_2017/manifests
+  val_dir: data/ms_coco_2017/manifests
+  train_manifest: data/ms_coco_2017/manifests/train2017_primary.jsonl
+  val_manifest: data/ms_coco_2017/manifests/val2017_primary.jsonl
+  caption_field: caption
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 64
+model: {grid_size: [16, 24], d_model: 384, n_layers: 8, n_heads: 6, mlp_ratio: 4, dropout: 0.1, use_modality_embeddings: false}
+lora: {train_mode: dense}
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.10
+  weight: 1.0
+  bert_replacement: false
+train:
+  batch_size: 128
+  gradient_accumulation_steps: 2
+  epochs: 20
+  lr: 0.0003
+  lr_schedule: constant
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_diffusion_coco_one_caption_scratch_20e
+  log_every: 20
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 5000
+  val_diffusion_nll_draws: 4
+  early_stopping_patience: 0
+  seed: 20260923
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: COCO_text_diffusion
+  entity: zahra-delbari-university-of-bern
+  group: one_caption_per_image_from_scratch
+  run_name: text_diffusion_coco_one_caption_scratch_20e
+  tags: [coco, text-only, dense, from-scratch, diffusion-only, one-caption-per-image, twenty-epochs, val-diffusion-nll]

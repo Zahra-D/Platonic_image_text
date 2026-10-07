@@ -1,0 +1,106 @@
+# Compute-matched control for the staged dense+private experiments.
+#
+# The stage-2 runs reach validation 1.0433 against the dense baseline's 1.0758,
+# but they are not comparable: stage 2 has seen eight epochs of data (four as
+# the dense baseline, two of stage-1 data2vec, two of stage-2 diffusion) while
+# the baseline saw four. This run continues the dense baseline from its
+# epoch_003 checkpoint for four more epochs, to eight total, so the comparison
+# is at matched data exposure.
+#
+# `resume` restores the model, the optimizer state and the step counter, and
+# there is no learning-rate schedule in this trainer (constant 3e-4), so the
+# continuation has no schedule-restart artifact. Checkpoints go to a new
+# directory; the original four-epoch run is untouched.
+#
+# Caveat on what "matched" means: epochs of data are matched, not parameter
+# updates. Stage 1 trained no output head and stage 2 trained only 12.58M of
+# 27.45M parameters, whereas this control trains all 14.87M dense parameters
+# for every one of the eight epochs. If anything that favours this control.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 40
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_dense_diffusion_2m_40e_continued
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260915
+  resume: outputs/text_dense_diffusion_2m_20e_continued/epoch_019.pt
+  probe_every_steps: 1000
+  probe_type: semantic_dprime
+  probe_num_worlds: 2000
+  probe_bootstrap: 200
+  probe_sublayer_layers:
+  - 4
+  - 5
+  - 6
+  - 7
+  probe_lexicon_matched: true
+  probe_gpu: 1
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_modulewise_ema_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: text_dense_compute_matched
+  run_name: text_dense_diffusion_2m_40e_continued
+  tags:
+  - text-only
+  - dense
+  - diffusion-only
+  - compute-matched-control
+  - continued-to-8-epochs
+  - 2m-captions

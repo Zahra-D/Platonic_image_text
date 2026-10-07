@@ -1,0 +1,53 @@
+# Dense, text-only one-pass control.  No LoRA branches, JEPA, DANN, SIGReg,
+# modality embeddings, paired loss, or repeated data.
+tokenizer: {checkpoint: outputs/vqvae_training_bs128/best.pt, num_codes: 512, embed_dim: 64}
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/train_pairs_diverse_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_100k_gpu_visible_s20260825/val_pairs_diverse_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/platonic_token_cache_correct_dataset_visible_check
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size: [16, 24]
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora: {train_mode: dense}
+diffusion: {objective: text, eps: 1.0e-3, unweighting: false}
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  epochs: 1
+  lr: 3.0e-4
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_dense_onepass_bs64_lr3e4
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 31
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+evaluation: {paired_enabled: false, selection_metric: marginal_t0.75}
+generate: {num_samples: 0, num_steps: 50, temperature: 1.0, reveal_order: confidence}
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_single_modality_ema_jepa
+  entity: zahra-delbari-university-of-bern
+  group: text_dense_onepass_reference
+  run_name: text_dense_onepass_bs64_lr3e4
+  tags: [pretraining, text-only, dense, no-modality-embedding, learned-absolute-position, diffusion-only, one-pass, no-repeat, reference]

@@ -1,0 +1,132 @@
+# LeJEPA instead of data2vec: SIGReg in place of the EMA teacher.
+#
+# LeJEPA (arXiv 2511.08544) proves the isotropic Gaussian is the optimal
+# embedding distribution for a JEPA and enforces it with SIGReg -- univariate
+# goodness-of-fit tests on random 1D projections, via the Cramer-Wold principle
+# -- which it argues removes the need for stop-gradients, teacher-student
+# networks and EMA momentum encoders entirely.
+#
+# This run is the best configuration in the study (layerwise, all 8 blocks,
+# from the dense trunk) with exactly those three heuristics removed:
+#
+#   * no EMA teacher: the clean pass goes through the *same* network;
+#   * no stop-gradient: gradients flow through the target as well;
+#   * no parameter-free LayerNorm on the target, which data2vec needs to stay
+#     scale-free and LeJEPA replaces with the distributional constraint;
+#   * SIGReg on the pooled
+#     embedding distribution of every supervised block, with the reference
+#     implementation's settings (1024 slices, 17 Epps-Pulley points) and the
+#     paper's convex objective (1 - lambda) * prediction + lambda * SIGReg,
+#     lambda = 0.05.
+#
+# What to watch: `target_spread` is the collapse detector. Under data2vec it
+# held at 0.03-0.04. If SIGReg does its job it should hold here too, with no
+# teacher anywhere in the run.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_text_only_v1_1m/val_text_only_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/unused_text_only_cache
+  mode: text_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+lora:
+  train_mode: dense
+diffusion:
+  objective: text
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+train:
+  batch_size: 64
+  gradient_accumulation_steps: 4
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  num_workers: 8
+  amp: bf16
+  output_dir: outputs/text_lejepa_from_dense_layerwise_all_2m_2e
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  init_checkpoint: outputs/text_dense_diffusion_2m_4e_matched/epoch_003.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_teacherless: true
+  data2vec_sigreg_weight: 0.05
+  sigreg_num_slices: 1024
+  sigreg_num_points: 17
+  sigreg_t_max: 3.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: text_lejepa
+  run_name: text_lejepa_from_dense_layerwise_all_2m_2e
+  tags:
+  - text-only
+  - dense
+  - lejepa
+  - sigreg
+  - no-ema-teacher
+  - no-stop-gradient
+  - data2vec-layerwise
+  - blocks-0-7
+  - no-diffusion-loss
+  - from-dense
+  - 2m-captions
+  - two-epochs

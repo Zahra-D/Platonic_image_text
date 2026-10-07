@@ -1,0 +1,128 @@
+# LeJEPA from scratch on both modalities at once.
+#
+# No pretrained trunk of any kind and no reconstruction loss: a randomly
+# initialized dense model sees captions and images unpaired, and the only
+# objective is layerwise data2vec over all 8 blocks -- each block predicting its
+# own target through its own MLP predictor -- with SIGReg in place of the EMA
+# teacher (no teacher, no stop-gradient, no target LayerNorm; 1024 slices, 17
+# Epps-Pulley points, convex objective (1 - lambda) * prediction + lambda *
+# SIGReg with lambda = 0.05).
+#
+# This is the hardest version of the claim in the whole study. From-scratch
+# layerwise data2vec collapsed with an EMA teacher in *both* modalities
+# separately (text d_semantic -1.64, image scene probe 61% against dense's 81%).
+# Doing it from scratch on both modalities at once, with the teacher removed
+# entirely, tests whether SIGReg alone can carry an objective that the teacher
+# heuristics could not.
+#
+# Unpaired sampling note: each epoch draws min(n_text, n_image) items -- here
+# both are 1.2M, so nothing is dropped -- with a derangement guaranteeing a
+# caption is never carried with its own image, redrawn every epoch.
+#
+# Four epochs, matching the other from-scratch runs.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/train_pairs_human.jsonl
+  val_manifest: /home/zd25e122/clevr-dataset-gen_clone/output/platonic_clevr_v1_5M_train_gpu_visible/val_pairs_human.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_1_2m_token_cache
+  mode: unpaired
+  balanced_modalities: true
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: both
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 0.0
+lora:
+  train_mode: dense
+train:
+  batch_size: 64
+  epochs: 4
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/multimodal_unpaired_lejepa_scratch_1_2m_4e
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: true
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: false
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: true
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+  data2vec_teacherless: true
+  data2vec_sigreg_weight: 0.05
+  sigreg_num_slices: 1024
+  sigreg_num_points: 17
+  sigreg_t_max: 3.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  entity: zahra-delbari-university-of-bern
+  group: unpaired_jepa_from_unpaired_dense
+  run_name: multimodal_unpaired_lejepa_scratch_1_2m_4e
+  tags:
+  - unpaired
+  - both-modalities
+  - dense
+  - data2vec-layerwise
+  - blocks-0-7
+  - lejepa-sigreg
+  - no-diffusion-loss
+  - 1_2m
+  - two-epochs
+  - no-stop-gradient
+  - from-scratch

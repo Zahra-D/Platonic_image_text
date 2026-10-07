@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040" role="img" aria-labelledby="title desc">
+  <title id="title">No-base Tri-LoRA multimodal forward pass</title>
+  <desc id="desc">Text tokens use shared plus text-private LoRA, while image tokens use the same shared plus image-private LoRA. There is no dense base weight or bias.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f8fafc}.title{font:700 42px Arial,sans-serif;fill:#102a43}.sub{font:24px Arial,sans-serif;fill:#486581}.h{font:700 27px Arial,sans-serif;fill:#102a43}.t{font:22px Arial,sans-serif;fill:#243b53}.small{font:19px Arial,sans-serif;fill:#486581}.textbox{fill:#edf2ff;stroke:#5272cf;stroke-width:3}.imagebox{fill:#fff0e6;stroke:#da7b28;stroke-width:3}.input{fill:#fff;stroke:#bcccdc;stroke-width:3}.shared{fill:#e7f8f1;stroke:#23856d;stroke-width:4}.textprivate{fill:#edf2ff;stroke:#5272cf;stroke-width:4}.imageprivate{fill:#fff0e6;stroke:#da7b28;stroke-width:4}.sum{fill:#f2e8ff;stroke:#8554b7;stroke-width:3}.off{fill:#f1f5f9;stroke:#9fb3c8;stroke-width:3;stroke-dasharray:8 8}.note{fill:#fff8db;stroke:#c99716;stroke-width:3}.arrow{stroke:#526d82;stroke-width:4;fill:none;marker-end:url(#arrow)}.dash{stroke:#9fb3c8;stroke-width:3;fill:none;stroke-dasharray:8 8}
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#526d82"/></marker>
+  </defs>
+  <rect class="bg" width="1600" height="1040"/>
+  <text class="title" x="800" y="65" text-anchor="middle">No-base Tri-LoRA: route selects the appropriate private branch</text>
+  <text class="sub" x="800" y="104" text-anchor="middle">The shared LoRA parameters are the same for both modalities. The original dense W and bias are absent.</text>
+
+  <rect class="textbox" x="70" y="190" rx="20" width="260" height="120"/>
+  <text class="h" x="200" y="238" text-anchor="middle">Text token</text>
+  <text class="t" x="200" y="278" text-anchor="middle">route ID = 0</text>
+  <rect class="imagebox" x="70" y="665" rx="20" width="260" height="120"/>
+  <text class="h" x="200" y="713" text-anchor="middle">Image token</text>
+  <text class="t" x="200" y="753" text-anchor="middle">route ID = 1</text>
+
+  <rect class="input" x="405" y="170" rx="18" width="270" height="160"/>
+  <text class="h" x="540" y="220" text-anchor="middle">Input x</text>
+  <text class="t" x="540" y="262" text-anchor="middle">token + position</text>
+  <text class="small" x="540" y="300" text-anchor="middle">embedding sum</text>
+  <rect class="input" x="405" y="645" rx="18" width="270" height="160"/>
+  <text class="h" x="540" y="695" text-anchor="middle">Input x</text>
+  <text class="t" x="540" y="737" text-anchor="middle">token + position</text>
+  <text class="small" x="540" y="775" text-anchor="middle">embedding sum</text>
+
+  <rect class="shared" x="790" y="405" rx="24" width="340" height="130"/>
+  <text class="h" x="960" y="454" text-anchor="middle">One shared branch</text>
+  <text class="h" x="960" y="493" text-anchor="middle">Δshared(x) = s Bs As x</text>
+
+  <rect class="textprivate" x="790" y="175" rx="24" width="340" height="130"/>
+  <text class="h" x="960" y="224" text-anchor="middle">Text-private branch</text>
+  <text class="h" x="960" y="263" text-anchor="middle">Δtext(x) = s Bt At x</text>
+  <rect class="imageprivate" x="790" y="665" rx="24" width="340" height="130"/>
+  <text class="h" x="960" y="714" text-anchor="middle">Image-private branch</text>
+  <text class="h" x="960" y="753" text-anchor="middle">Δimage(x) = s Bi Ai x</text>
+
+  <rect class="off" x="1165" y="175" rx="18" width="230" height="130"/>
+  <text class="h" x="1280" y="230" text-anchor="middle">Image-private</text>
+  <text class="t" x="1280" y="268" text-anchor="middle">inactive for text</text>
+  <rect class="off" x="1165" y="665" rx="18" width="230" height="130"/>
+  <text class="h" x="1280" y="720" text-anchor="middle">Text-private</text>
+  <text class="t" x="1280" y="758" text-anchor="middle">inactive for image</text>
+
+  <rect class="sum" x="1210" y="405" rx="22" width="310" height="130"/>
+  <text class="h" x="1365" y="452" text-anchor="middle">Selected-layer output y</text>
+  <text class="t" x="1365" y="493" text-anchor="middle">then residual Transformer path</text>
+
+  <path class="arrow" d="M330 250 H405"/>
+  <path class="arrow" d="M330 725 H405"/>
+  <path class="arrow" d="M675 250 H790"/>
+  <path class="arrow" d="M675 250 H735 Q790 250 790 440"/>
+  <path class="arrow" d="M675 725 H790"/>
+  <path class="arrow" d="M675 725 H735 Q790 725 790 505"/>
+  <path class="arrow" d="M1130 240 H1165"/>
+  <path class="arrow" d="M1130 730 H1165"/>
+  <path class="arrow" d="M1130 240 H1175 Q1210 240 1210 440"/>
+  <path class="arrow" d="M1130 470 H1210"/>
+  <path class="arrow" d="M1130 730 H1175 Q1210 730 1210 500"/>
+  <path class="dash" d="M1130 240 H1165"/>
+  <path class="dash" d="M1130 730 H1165"/>
+
+  <text class="h" x="1365" y="585" text-anchor="middle">Text: y = Δshared(x) + Δtext(x)</text>
+  <text class="h" x="1365" y="625" text-anchor="middle">Image: y = Δshared(x) + Δimage(x)</text>
+
+  <rect class="note" x="120" y="885" rx="16" width="1360" height="94"/>
+  <text class="t" x="800" y="925" text-anchor="middle">No frozen Wbase and no frozen base bias exist in selected Tri-LoRA layers. Route IDs only choose which private LoRA delta is added.</text>
+  <text class="small" x="800" y="958" text-anchor="middle">The shared branch is genuinely the same A/B parameter tensors for text and image; the private branches are different tensors.</text>
+</svg>
