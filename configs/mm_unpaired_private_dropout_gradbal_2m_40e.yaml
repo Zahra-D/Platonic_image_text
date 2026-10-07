@@ -1,0 +1,112 @@
+# Fix for mm_unpaired_dense_private_lora_r128_2m_40e (stopped at epoch 13).
+#
+# Diagnosis (scripts/diagnose_private_reliance.py): image gradients dominated the shared
+# trunk (3.2x text by epoch 13), so the rank-128 text-private LoRA took over text: its
+# writes exceeded the trunk's in blocks 3-7, and trunk-only text accuracy fell to 0.
+#
+# Same data / model / rank-128 private LoRA / batch / lr / 40 epochs, from scratch, plus:
+#   * gradient balancing: per-modality EMA of the trunk (dense weight) gradient norm;
+#     each modality's trunk gradient is rescaled so both contribute equally
+#     (alignment.gradient_balance_enabled, weights clamped to [0.25, 4]);
+#   * private-branch dropout 0.5: each sample is routed through the shared trunk
+#     alone (private LoRA off) with probability 0.5, so the trunk must model text
+#     and images by itself.
+alignment:
+  gradient_balance_enabled: true
+  modality_adversarial_enabled: false
+  modulewise_hsic_enabled: false
+  modulewise_jepa_mode: none
+  objective_gradient_diagnostics_every: 0
+  shared_gradient_diagnostics: false
+  shared_jepa_enabled: false
+  sigreg_enabled: false
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+data:
+  balanced_modalities: true
+  caption_field: caption_human
+  max_text_length: 192
+  mode: unpaired
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  train_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  val_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_1m/val_text_only_human.jsonl
+diffusion:
+  eps: 0.001
+  full_mask_probability: 0.0
+  objective: both
+  unweighting: false
+  weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  reveal_order: confidence
+  temperature: 1.0
+lora:
+  alpha: 128
+  diffusion_private_only: false
+  dropout: 0.0
+  freeze_base: false
+  private_rank: 128
+  rank: 384
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  train_mode: dense_private
+  private_dropout: 0.5
+model:
+  d_model: 384
+  dropout: 0.1
+  grid_size:
+  - 16
+  - 24
+  mlp_ratio: 4
+  n_heads: 6
+  n_layers: 8
+  use_modality_embeddings: false
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  embed_dim: 64
+  num_codes: 512
+train:
+  amp: bf16
+  batch_size: 256
+  epochs: 40
+  eval_every: 1
+  gradient_accumulation_steps: 1
+  log_every: 10
+  lr: 0.0003
+  max_grad_norm: 50.0
+  num_workers: 8
+  output_dir: outputs/mm_unpaired_private_dropout_gradbal_2m_40e
+  save_every: 1
+  seed: 20260921
+  val_max_samples: 2048
+  weight_decay: 0.0
+wandb:
+  enabled: true
+  entity: zahra-delbari-university-of-bern
+  group: multimodal_unpaired_private_lora_fix
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  run_name: mm_unpaired_private_dropout_gradbal_2m_40e
+  tags:
+  - unpaired
+  - both-modalities
+  - dense-private
+  - private-lora-r128
+  - diffusion-only
+  - from-scratch
+  - 2m-text-2_5m-images
+  - separate-corpora
+  - forty-epochs
+  - gradient-balance
+  - private-dropout-0.5

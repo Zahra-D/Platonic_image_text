@@ -73,6 +73,14 @@ def init_distributed() -> None:
     dist.init_process_group("nccl" if torch.cuda.is_available() else "gloo")
 
 
+def drop_private_routes(route_ids: torch.Tensor, probability: float) -> torch.Tensor:
+    """Per sample, with `probability`, switch the private LoRA off (route -1 = shared only)."""
+    if probability <= 0:
+        return route_ids
+    drop = torch.rand(route_ids.size(0), device=route_ids.device) < probability
+    return route_ids.masked_fill(drop[:, None] & route_ids.ge(0), -1)
+
+
 def all_reduce_gradients(model) -> None:
     """Average accumulated gradients over ranks once per optimizer step.
 
@@ -198,6 +206,11 @@ def parse_args():
         ),
     )
     parser.add_argument("--lora-rank", type=int, default=lora.get("rank", 16))
+    parser.add_argument(
+        "--private-dropout", type=float, default=lora.get("private_dropout", 0.0),
+        help="Training only: route each sample through the shared trunk alone (private "
+             "LoRA off) with this probability, so the trunk must model every modality itself.",
+    )
     parser.add_argument(
         "--lora-private-rank", type=int, default=lora.get("private_rank", None),
         help="Private adapter rank in dense_private mode (default d_model/3).",
@@ -1564,6 +1577,10 @@ def main():
         raise ValueError("Balanced unpaired training requires an even batch size >= 2")
     if args.data_mode == "text_only" and args.objective != "text":
         raise ValueError("data.mode=text_only requires diffusion.objective=text")
+    if not 0 <= args.private_dropout < 1:
+        raise ValueError("lora.private_dropout must be in [0, 1)")
+    if args.private_dropout > 0 and args.train_mode not in {"lora", "dense_private"}:
+        raise ValueError("lora.private_dropout needs private adapters (train_mode lora or dense_private)")
     if args.lejepa_views:
         if args.data2vec_hidden or args.shared_jepa or args.sigreg or args.modality_adversarial:
             raise ValueError("lejepa_views is a standalone objective; disable data2vec/shared JEPA/SIGReg/DANN")
@@ -2404,6 +2421,8 @@ def main():
                 gated_jepa_gradients = None
                 gated_jepa_parameters = None
                 sub_batch = move_batch(sub_batch, device)
+                if args.private_dropout > 0:
+                    sub_batch["route_ids"] = drop_private_routes(sub_batch["route_ids"], args.private_dropout)
                 if args.lejepa_views:
                     # Paper LeJEPA: crops in place of corruption, no diffusion loss.
                     with torch.autocast(device_type=device, dtype=amp_dtype, enabled=amp_dtype is not None):
