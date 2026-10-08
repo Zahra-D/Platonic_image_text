@@ -328,3 +328,77 @@ The same text eval also asks, by cosine (L7, epoch 4), whether a query caption i
 
 - Text binding probe at epochs 7, 10, 20, 40, to match the image table.
 - A strict metric on the text side.
+
+## 11. Hard retrieval with better scorers (`evaluate_hard_xret_variants.py`)
+
+§10 suggested hard retrieval fails because ridge and cosine follow the high-variance directions
+(inventory, wording), while binding sits in weak directions. This section tests that directly.
+
+**Setup:**
+- Same scenes, split and 695 test hard tasks as §9: image → text, true caption vs 7 same-word swaps,
+  chance R@1 0.125.
+- Readouts searched: text {L5, L6, L7, L5.mlp_out, L6.mlp_out} × image {L5, L6, L7, L6.mlp_out}.
+- Each scorer's readout pair and hyper-parameters are chosen on the 667 val hard tasks, refitted on
+  fit + val, and scored once on test.
+
+**Scorers:**
+- **ridge:** the §9 map: ridge image → text, cosine in text space.
+- **whitened:** both modalities PCA-whitened on the fit rows (eigenvalue floor ε·mean, ε ∈ {1e-3, 1e-2,
+  0.1}), then ridge and cosine in whitened text space. Every direction gets equal weight.
+- **CCA:** regularised CCA (reg ∈ {0.01, 0.1}) between image and text features of the fit pairs;
+  image and candidates are compared by cosine in the top k canonical components, k ∈ {8, …, 128}.
+- **map → text fact probe:** a class-balanced logistic probe for the 72 conjunction facts, trained on
+  the text features of the fit scenes. The ridge-mapped image and each candidate are compared by
+  cosine of their centred probe logits.
+  - Fitting ridge from image features straight to the probe logits gives identical numbers, because
+    the probe is linear. So these are one test.
+- **fact probe vs fact probe:** an image fact probe on the image vs the text fact probe on each
+  candidate. It uses fact labels on both sides, so it is a supervised reference, not an alignment.
+
+**Results** (hard R@1 on test):
+
+| Epoch | Ridge | Whitened | **CCA** | Map → text fact probe | Fact probe vs fact probe |
+|---|---|---|---|---|---|
+| 1 | 0.135 | 0.142 | **0.210** | 0.145 | 0.167 |
+| 2 | 0.145 | 0.242 | **0.260** | 0.262 | 0.240 |
+| 4 | 0.194 | 0.338 | **0.412** | 0.355 | 0.355 |
+| 7 | 0.170 | 0.338 | **0.424** | 0.374 | 0.345 |
+| 10 | 0.151 | 0.360 | **0.485** | 0.328 | 0.387 |
+| 20 | 0.197 | 0.342 | **0.469** | 0.376 | 0.367 |
+| 40 | 0.183 [0.154, 0.210] | 0.358 [0.325, 0.394] | **0.452 [0.414, 0.489]** | 0.341 [0.305, 0.378] | 0.351 [0.315, 0.387] |
+| random init | 0.121 | 0.115 | 0.121 | 0.118 | 0.117 |
+
+**Choices at epoch 40** (text | image):
+
+| Scorer | Cells | Settings |
+|---|---|---|
+| ridge | L5.mlp_out \| L6 | α 0.001 |
+| whitened | L5.mlp_out \| L6.mlp_out | ε 0.1, α 10 |
+| CCA | L6.mlp_out \| L6.mlp_out | reg 0.01, k 32 |
+| map → probe | L6.mlp_out \| L6.mlp_out | — |
+| fact vs fact | L5.mlp_out \| L6.mlp_out | — |
+
+**Shuffled-pairs control, epoch 40, at the chosen settings:** CCA 0.109, whitened 0.085. Both are
+chance, so the gains need true pairs.
+
+**Reading:**
+- **Ridge was the problem.** Giving weak directions equal weight doubles hard R@1 (whitened 0.36);
+  CCA reaches 0.45–0.49, close to 4× chance. Binding information in the two separately trained models
+  is partly linearly aligned. Plain ridge could not show it, because it fits the strong inventory and
+  wording directions.
+- **CCA improves with training up to epoch 10, then plateaus.** That matches the image binding probe,
+  which is also flat (§10.1).
+- **CCA beats the label-based fact-vs-fact scorer** (0.45 vs 0.35). The shared structure goes beyond
+  the 72 hand-defined attribute-pair facts.
+- **Mid-depth MLP writes are where the alignment is.** All label-free scorers end up on L5/L6 MLP
+  outputs, not the residual stream at L7.
+- **Caveats as in §7:** image overlap with the image training set, no relations, one seed per model,
+  and settings chosen on val from a modest grid.
+
+**Next:**
+- Rerun the ordinary 1000-candidate retrieval with CCA and whitening, to see whether they also help
+  there or trade easy retrieval for binding.
+- The same tests for the paired dense model and the unpaired dropout trunk.
+
+Results: `outputs/eval_hard_xret_variants/<text>__<image>.json`. Cached candidate features:
+`outputs/eval_hard_xret_variants/candidates_<text>.npz`.
