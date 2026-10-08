@@ -175,3 +175,51 @@ python3 evaluate_cross_modal_retrieval.py --num-scenes 8000 --test 1000 --val 10
   --image-checkpoint denseI_e040_IMAGE=outputs/image_dense_diffusion_2_5m_40e/epoch_039.pt \
   --pair "denseT_e040_TEXT|denseI_e040_IMAGE"
 ```
+
+## 9. Hard retrieval: the true caption vs binding swaps (`evaluate_cross_modal_hard_retrieval.py`)
+
+Same models, same 8000 scenes, same split, same centring and ridge map (image → text) as above.
+Only the candidate set changes.
+
+**Candidates:** for every test image, its own caption plus **7 captions of swapped scenes**. Each swapped
+scene exchanges one attribute (colour, shape, material or size) between two of the scene's objects.
+- All 8 captions share one phrasing plan, each with its own random object order.
+- They contain exactly the **same word multiset**; this is verified for every task.
+- So an inventory of attributes cannot separate them; only which attribute belongs to which object can.
+- Chance R@1 = 1/8 = 0.125. Ties count at random, so the input-embedding readout scores exactly 0.125.
+
+**Scenes kept:** scenes with at least 3 objects, no identical twins and at least 7 distinct swaps, giving
+**695 test** and 667 val tasks.
+
+**Direction:** image → text only, since swapped *images* would need rendering.
+
+**Cells reported:**
+- **easy cell:** the cell and α chosen for the ordinary retrieval above.
+- **hard-selected:** the cell and α chosen on the 667 val hard tasks, refit on fit + val.
+- **shuffled:** a map fitted on shuffled pairs, at the hard-selected cell.
+
+| Epochs | Ordinary i→t R@1 (1000 candidates) | Hard R@1, easy cell [95% CI] | Hard R@1, hard-selected cell [95% CI] | Hard MRR (hard-selected) | Shuffled |
+|---|---|---|---|---|---|
+| 1 | 0.070 | 0.125 (embedding: exact tie) | 0.118 [0.095, 0.142] (L3.mlp_out \| L6.mlp_out) | 0.338 | 0.082 |
+| 2 | 0.129 | 0.121 [0.096, 0.145] | 0.128 [0.104, 0.153] (L5.mlp_out \| L5.mlp_out) | 0.361 | 0.127 |
+| 4 | 0.293 | 0.112 [0.089, 0.135] | 0.194 [0.165, 0.223] (L6.mlp_out \| L7) | 0.412 | 0.106 |
+| 7 | 0.468 | 0.160 [0.134, 0.187] | 0.140 [0.115, 0.165] (L6.mlp_out \| L4.mlp_out) | 0.369 | 0.099 |
+| 10 | 0.470 | 0.122 [0.098, 0.150] | 0.168 [0.141, 0.196] (L5.mlp_out \| L5.mlp_out) | 0.404 | 0.118 |
+| 20 | 0.550 | 0.158 [0.132, 0.188] | 0.197 [0.168, 0.227] (L5.mlp_out \| L7) | 0.436 | 0.078 |
+| 40 | 0.548 | 0.150 [0.122, 0.176] | 0.183 [0.154, 0.210] (L5.mlp_out \| L6) | 0.415 | 0.098 |
+| random init | 0.033 | 0.125 | 0.115 [0.091, 0.137] | 0.334 | 0.150 |
+
+**Reading:**
+- **The map carries almost no binding.** Ordinary retrieval climbs to 0.55. Hard retrieval stays near
+  chance: 0.15 at the easy cell and at most 0.20 at the best cell, against 0.125 chance. The shuffled
+  control varies between 0.08 and 0.15, which shows how noisy 695 tasks are.
+- **So the ordinary R@1 comes almost entirely from the attribute inventory.** The map learns which
+  colours, shapes, materials and sizes are present, not which object has which.
+- **The text side is the bottleneck.** The text model alone, ranking a caption against the same kind of
+  reworded swaps (`evaluate_hard_retrieval.py`, `outputs/hard_retrieval_eval*`), reaches only R@1
+  0.22–0.23 at L7, with 8 candidates. Meanwhile the image model separates swapped image pairs at ~84%
+  pairwise (binding eval). Mean-pooled caption features barely encode binding, so no map can
+  recover it from them.
+- **Same caveats as §7:** image overlap, no relations, one seed.
+
+Results: `outputs/eval_hard_xret/<text>__<image>.json`; tasks and captions: `outputs/eval_hard_xret/tasks.json`.
