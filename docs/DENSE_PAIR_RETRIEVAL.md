@@ -215,11 +215,116 @@ scene exchanges one attribute (colour, shape, material or size) between two of t
   control varies between 0.08 and 0.15, which shows how noisy 695 tasks are.
 - **So the ordinary R@1 comes almost entirely from the attribute inventory.** The map learns which
   colours, shapes, materials and sizes are present, not which object has which.
-- **The text side is the bottleneck.** The text model alone, ranking a caption against the same kind of
-  reworded swaps (`evaluate_hard_retrieval.py`, `outputs/hard_retrieval_eval*`), reaches only R@1
-  0.22–0.23 at L7, with 8 candidates. Meanwhile the image model separates swapped image pairs at ~84%
-  pairwise (binding eval). Mean-pooled caption features barely encode binding, so no map can
-  recover it from them.
+- **Binding is in both models, but in directions the map and cosine don't use.**
+  - Unsupervised cosine ranking in text alone (caption vs reworded swaps, `evaluate_hard_retrieval.py`)
+    also sits near chance: R@1 0.22–0.23 at L7 with 8 candidates.
+  - A trained linear probe reads binding from the same pooled features at ~90% for text and ~80–84%
+    for images (§10).
+  - So binding lives in low-variance directions. Cosine scoring and a ridge map fitted to predict the
+    whole caption vector are dominated by attribute inventory and word order (§10.3).
 - **Same caveats as §7:** image overlap, no relations, one seed.
 
 Results: `outputs/eval_hard_xret/<text>__<image>.json`; tasks and captions: `outputs/eval_hard_xret/tasks.json`.
+
+## 10. Binding inside each model separately: linear-probe tests
+
+These test binding **within one model**, with a trained probe, not across modalities. They are the
+reference for §9: is binding information present in the pooled features at all?
+
+### 10.1 Image model (`evaluate_image_binding.py`)
+
+**Pairs:**
+- From 20,000 val scenes (`val_image_only.jsonl`, tokens from `image_only_2_5m_token_cache/val_tokens.pt`),
+  keep **content-matched pairs**: two real rendered scenes with identical per-attribute multisets
+  (same colours, shapes, materials, sizes) but a different attribute-to-object assignment.
+  - Example: red cube + blue sphere vs blue cube + red sphere.
+- Only scenes after the first 12,000 are used, giving **397 pairs**.
+
+**Facts:**
+- Each scene has a set of **conjunction facts**, one per object and per pair of attributes, e.g.
+  "some object is red AND a cube".
+- 72 facts occur at least 50 times as positives and as negatives.
+- In a matched pair some facts flip: true in one scene, false in the other.
+
+**Steps:**
+1. **Features:** image model, clean input, content tokens mean-pooled and L2-normalised, at every layer.
+2. **Probe:** on the first 12,000 scenes, one class-balanced logistic regression per fact, on
+   standardised features (Adam, 300 steps, lr 0.05, weight decay 1e-4).
+3. **Score:** on each held-out pair, for every flipped fact:
+   - **pairwise:** the probe's logit is higher in the scene where the fact is true. Chance 50%.
+   - **strict:** both scenes are classified correctly, logit > 0 where true and < 0 where false.
+4. **CI:** bootstrap over pairs. **Probe** = ordinary balanced accuracy of the probe on held-out scenes.
+
+**Results** (`outputs/eval_compare_private/binding/dense_e{2,4,8}.json`,
+`outputs/eval_all/binding/image_dense_diffusion_2_5m_40e__e039.json`):
+
+| Image dense, epoch | Pairwise, L7 [95% CI] | Strict, L7 | Probe, L7 | Best layer, pairwise | Input embedding, pairwise |
+|---|---|---|---|---|---|
+| 2 | 79.3 [77.8, 80.8] | 52.3 | 82.3 | 81.8 (L6.mlp_out) | 64.1 |
+| 4 | 80.2 [78.8, 81.5] | 54.5 | 83.1 | 83.5 (L6.mlp_out) | 64.1 |
+| 8 | 80.3 [78.8, 81.7] | 55.5 | 82.8 | 84.0 (L6.mlp_out) | 64.7 |
+| 40 | 80.6 [79.1, 82.1] | 54.3 | 82.7 | 83.7 (L6.mlp_out) | 64.5 |
+
+- **The floor is ~64%, not 50%.** A red cube and a red sphere give different VQ codes, so even the bag
+  of image tokens carries some binding information.
+- **Flat after epoch 2.**
+- **Overlap caveat (§3.3):** these scenes are also in the image model's training set.
+
+### 10.2 Text model (`evaluate_binding_swap.py`)
+
+**Items:**
+- 512 held-out scenes from `val_text_only_human.jsonl`.
+- Each query caption has a **swapped caption with exactly the same words**: one attribute exchanged
+  between two objects, or a relation's subject and anchor swapped.
+- Item counts: colour 493, shape 496, material 383, size 401, relation 413.
+
+**Steps:**
+1. **Probe:** the same kind, trained on 20,000 training captions
+   (`platonic_text_only_v1_2m/train_text_only_human.jsonl`).
+2. **Score:** for each flipped fact, whether the probe ranks the true caption above its swapped twin.
+   Pairwise only; the text eval has no strict variant yet.
+3. **Floor:** a bag of words or the input embedding gives identical inputs and scores exactly 50%.
+
+**Results** (`outputs/binding_swap_eval_epoch000/dense_epoch000.json`,
+`outputs/binding_swap_eval/dense_epoch003.json`). Only epochs 1 and 4 were run:
+
+| Text dense, epoch | Readout | Probe | Colour | Shape | Material | Size | Relation |
+|---|---|---|---|---|---|---|---|
+| 1 | L7 | 84.3 | 76.6 | 86.1 | 78.3 | 74.7 | 96.6 |
+| 1 | L5.mlp_out | 82.9 | 79.2 | 82.1 | 80.1 | 74.9 | 95.9 |
+| 4 | L7 | 89.7 | 90.8 | 87.7 | 93.1 | 93.5 | 48.2 (unexplained; 99% at L5–L6) |
+| 4 | L5.mlp_out (best) | 90.5 | 95.8 | 94.5 | 97.9 | 96.1 | 99.5 |
+| any | embedding | 84.5 | 50.0 | 50.0 | 50.0 | 50.0 | 50.0 |
+
+Text binding grows with training (epoch 1 → 4) and is higher than image binding at epoch 4: 88–98%
+vs 80–84%. The text floor is cleaner (50%), so the gap above the floor is much larger for text.
+
+### 10.3 Why the probe sees binding and cosine does not
+
+The same text eval also asks, by cosine (L7, epoch 4), whether a query caption is closer to:
+
+| Comparison | True caption preferred |
+|---|---|
+| the same scene **reworded** vs the swap in the **same words** | 0% |
+| the same scene **reordered** vs the swap in the same order | 20% |
+| a **different scene** in the same words | 99.8% |
+
+**What this means:**
+- Raw cosine is dominated by word choice and word order, not binding.
+- The binding information that the probe finds is a small, low-variance part of the vector.
+- §9 combines both problems:
+  - its 8 candidates differ in object order;
+  - the ridge map is fitted to predict the **whole** caption vector, which is mostly inventory and
+    wording.
+  
+  So the binding directions barely enter the image→text map.
+
+**Fair comparisons:**
+- probe vs probe (§10.1 vs §10.2);
+- a cross-modal test that scores only binding directions, e.g. text and image fact probes, or a map
+  fitted to predict fact logits.
+
+### 10.4 Missing
+
+- Text binding probe at epochs 7, 10, 20, 40, to match the image table.
+- A strict metric on the text side.
