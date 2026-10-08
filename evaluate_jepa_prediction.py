@@ -82,18 +82,21 @@ def modality_batches(margs, tokenizer, args):
 
 def corrupt_like_training(batch, modality, margs, tokenizer):
     """Same masking as train_multimodal's training call (per-modality blocks / spans / t)."""
-    both = margs.mask_block_2d and margs.mask_span_min is not None
-    blocks = margs.mask_block_2d and (not both or modality == "image")
-    spans = margs.mask_span_min is not None and (not both or modality == "text")
+    # older checkpoints predate some masking options: fall back to the trainer defaults
+    block_2d = getattr(margs, "mask_block_2d", False)
+    span_min, span_max = getattr(margs, "mask_span_min", None), getattr(margs, "mask_span_max", None)
+    both = block_2d and span_min is not None
+    blocks = block_2d and (not both or modality == "image")
+    spans = span_min is not None and (not both or modality == "text")
     fixed = {"text": getattr(margs, "train_fixed_t_text", None),
              "image": getattr(margs, "train_fixed_t_image", None)}.get(modality)
     return corrupt_batch(
         batch["input_ids"], batch["eligible_mask"], batch["modality_ids"], tokenizer.mask_id,
-        margs.eps, modality, fixed_t=fixed if fixed is not None else margs.train_fixed_t,
-        mask_span_min=margs.mask_span_min if spans else None,
-        mask_span_max=margs.mask_span_max if spans else None,
+        margs.eps, modality, fixed_t=fixed if fixed is not None else getattr(margs, "train_fixed_t", None),
+        mask_span_min=span_min if spans else None, mask_span_max=span_max if spans else None,
         mask_block_grid=tuple(margs.grid_size) if blocks else None,
-        mask_block_scale=tuple(margs.mask_block_scale), mask_block_aspect=tuple(margs.mask_block_aspect),
+        mask_block_scale=tuple(getattr(margs, "mask_block_scale", (0.15, 0.2))),
+        mask_block_aspect=tuple(getattr(margs, "mask_block_aspect", (0.75, 1.5))),
     )
 
 
