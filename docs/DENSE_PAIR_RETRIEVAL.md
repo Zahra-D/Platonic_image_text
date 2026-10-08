@@ -472,3 +472,83 @@ Longer JEPA reduces it.
 
 Results: `outputs/eval_hard_xret_variants/<text label>__denseI_e040_IMAGE.json`, where text labels are
 `denseT_eNNN_TEXT` and `ijepa_fromKK_totNNN_TEXT`.
+
+## 13. JEPA text × JEPA image vs dense text × dense image (same total epochs)
+
+**Question:** with JEPA on **both** sides, is cross-modal alignment better than between two
+diffusion-only models at the same total epochs?
+
+**Models:** both JEPA models start from their dense model at **epoch 12**.
+- **Text:** `text_ijepa_w4_8_from_dense_ep12_2m_6e`, text I-JEPA as in §12.
+- **Image:** `image_ijepa_sweep_blk_s15_t45`, image I-JEPA from `image_dense_diffusion_2_5m_40e/epoch_011`.
+  - EMA teacher, layerwise targets, 2-D block masking; context 15% scale, targets 45%.
+  - Same 2.53M images, no diffusion loss.
+  - Chosen from the 10-config sweep for its L7 binding and probe accuracy.
+  - The sweep config with the best best-layer binding, `blk_tiny_t45`, is added at 16 as a check.
+- **Matched total epochs:**
+  - 14 = 12 dense + 2 JEPA (`epoch_001` on both sides);
+  - 16 = 12 + 4 (text `epoch_003`, image `epoch_003`).
+  
+  Dense pairs at the same totals: text `text_dense_diffusion_2m_20e_continued/epoch_{013,015}` × image
+  `image_dense_diffusion_2_5m_40e/epoch_{013,015}`.
+- **Only 14 and 16 can be matched,** because the image JEPA exists only from dense epoch 12.
+- **Mixed pairs** (JEPA × dense) were not run.
+
+**Protocol:** the same 8000 scenes and split as everywhere above.
+- Ordinary retrieval and CKA as in §5–6: 1000 test candidates, ridge cell chosen on val; CKA on test
+  features at the chosen cell and at the L7 diagonal.
+- Hard retrieval as in §11: 695 tasks, chance 0.125.
+
+### 13.1 Ordinary retrieval and CKA
+
+| Total epochs | Pair | Cell (text \| image) | t→i R@1 [95% CI] | t→i MRR | i→t R@1 / MRR | Procrustes i→t MRR | CKA, chosen cell | CKA, L7 \| L7 |
+|---|---|---|---|---|---|---|---|---|
+| 14 | dense × dense | L5 \| L7 | 0.626 [0.596, 0.658] | 0.727 | 0.448 / 0.574 | 0.179 | 0.358 | 0.227 |
+| 14 | JEPA × JEPA (s15_t45) | L6 \| L7 | **0.657** [0.630, 0.687] | 0.757 | 0.457 / 0.574 | **0.242** | 0.390 | **0.357** |
+| 16 | dense × dense | L5 \| L7 | **0.649** [0.620, 0.678] | 0.748 | **0.534 / 0.640** | 0.192 | 0.312 | 0.246 |
+| 16 | JEPA × JEPA (s15_t45) | L5.mlp_out \| L7 | 0.575 [0.544, 0.606] | 0.685 | 0.475 / 0.587 | **0.314** | 0.281 | **0.353** |
+| 16 | JEPA × JEPA (tiny_t45) | L5.mlp_out \| L7 | 0.593 [0.564, 0.623] | 0.702 | 0.470 / 0.591 | 0.287 | 0.277 | 0.352 |
+
+### 13.2 Hard retrieval (true caption vs 7 same-word swaps)
+
+| Total epochs | Pair | Ridge | Whitened | **CCA** [95% CI] | Map → text probe | Fact vs fact |
+|---|---|---|---|---|---|---|
+| 14 | dense × dense | 0.178 | 0.319 | **0.435** [0.400, 0.471] | 0.344 | 0.374 |
+| 14 | JEPA × JEPA (s15_t45) | 0.255 | 0.400 | **0.515** [0.481, 0.553] | 0.468 | 0.460 |
+| 16 | dense × dense | 0.197 | 0.348 | **0.502** [0.463, 0.541] | 0.378 | 0.383 |
+| 16 | JEPA × JEPA (s15_t45) | 0.318 | 0.414 | **0.511** [0.473, 0.548] | 0.420 | 0.452 |
+| 16 | JEPA × JEPA (tiny_t45) | 0.245 | 0.396 | **0.538** [0.502, 0.573] | 0.453 | 0.475 |
+
+CCA chose L5/L6.mlp_out or L7 (text) × L6.mlp_out (image), k = 16–32, reg 0.01.
+
+**Reading:**
+1. **Hard retrieval improves with JEPA on both sides.**
+   - JEPA×JEPA beats dense×dense on every hard scorer at both epochs:
+     - ridge +0.05 to +0.12;
+     - whitened +0.05 to +0.08;
+     - probe-based scorers +0.04 to +0.12.
+   - With CCA the gain is +0.08 at 14 (CIs do not overlap) and +0.01 / +0.04 at 16 (within noise).
+   - 0.538 is the best hard R@1 measured so far.
+2. **Plain R@1 does not improve.**
+   - At 14 it is about level: 0.657 vs 0.626, CIs overlap.
+   - At 16 JEPA×JEPA is lower: 0.575–0.593 vs 0.649 text→image, 0.47 vs 0.53 image→text.
+   - JEPA trades some inventory-driven retrieval for binding alignment.
+3. **The two JEPA spaces are geometrically closer.**
+   - Layer-matched CKA at L7 rises from 0.23–0.25 to 0.35.
+   - Procrustes (rotation only) rises from 0.18–0.19 to 0.24–0.31.
+   - CKA at the ridge-chosen cell does not follow (0.28–0.39 vs 0.31–0.36), because that cell is chosen for
+     plain retrieval, not similarity.
+4. **The image side is the likely source.** In §12, JEPA on the text side alone (with the 40-epoch dense
+   image model) gave no CCA gain. Mixed pairs at 14/16 would confirm this.
+
+**Caveats:**
+- Two matched epochs only.
+- One seed per model.
+- The image config was chosen by binding.
+- Image overlap as in §3.3.
+
+Results:
+- ordinary: `outputs/eval_all/xret/results/<text>__<image>.json`;
+- hard: `outputs/eval_hard_xret_variants/<text>__<image>.json`.
+- Labels: `denseT_e01{4,6}_TEXT`, `denseI_e01{4,6}_IMAGE`, `ijepa_from12_tot01{4,6}_TEXT`,
+  `ijepaI_{s15t45,tinyt45}_tot01{4,6}_IMAGE`.
