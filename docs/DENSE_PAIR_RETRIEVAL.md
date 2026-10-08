@@ -402,3 +402,73 @@ chance, so the gains need true pairs.
 
 Results: `outputs/eval_hard_xret_variants/<text>__<image>.json`. Cached candidate features:
 `outputs/eval_hard_xret_variants/candidates_<text>.npz`.
+
+## 12. Does text I-JEPA improve cross-modal binding alignment? (JEPA branches vs diffusion-only text)
+
+**Question:** I-JEPA makes text binding easier to read out. Does it also make it more alignable with
+the image model's binding, measured by hard R@1 (§9) with the better scorers of §11?
+
+**Text models compared at the same total epochs:**
+- **Diffusion-only:** the dense text model of §2 (checkpoints at 4, 10, 14, 18, 22, 26, 40).
+- **JEPA branches** `text_ijepa_w4_8_from_dense_ep{k}_2m_6e`, for k = 4, 8, 12, 16, 20:
+  - start from that dense text model at epoch k;
+  - train text-only I-JEPA on the same 2M captions: EMA teacher, layerwise targets on all blocks,
+    span masking 4–8 tokens, no diffusion loss;
+  - the `_6e` checkpoint (epoch_005) is at **k + 6** total epochs;
+  - the `_full` continuation is at **41** total epochs, compared with diffusion-only at 40.
+
+**Protocol:**
+- **Image model fixed:** every text model is paired with the **same image model**,
+  `image_dense_diffusion_2_5m_40e/epoch_039`. Differences therefore come from the text side.
+- **Eval:** the same 8000 scenes, split, hard tasks (695 test, chance 0.125) and scorers as §11, with
+  readouts and settings chosen on val.
+
+**Results** (hard R@1 on test; 95% CI about ±0.035):
+
+| Total epochs | Text model | Ridge | Whitened | **CCA** | Map → text probe | Fact vs fact |
+|---|---|---|---|---|---|---|
+| 10 | diffusion | 0.165 | 0.365 | **0.452** | 0.335 | 0.377 |
+| 10 | JEPA from 4, +6 | 0.292 | 0.334 | **0.458** | 0.407 | 0.407 |
+| 14 | diffusion | 0.190 | 0.340 | **0.463** | 0.328 | 0.351 |
+| 14 | JEPA from 8, +6 | 0.286 | 0.364 | **0.475** | 0.430 | 0.404 |
+| 18 | diffusion | 0.209 | 0.329 | **0.446** | 0.341 | 0.354 |
+| 18 | JEPA from 12, +6 | 0.296 | 0.364 | **0.439** | 0.416 | 0.387 |
+| 22 | diffusion | 0.176 | 0.347 | **0.479** | 0.368 | 0.378 |
+| 22 | JEPA from 16, +6 | 0.288 | 0.354 | **0.452** | 0.459 | 0.424 |
+| 26 | diffusion | 0.176 | 0.358 | **0.412** | 0.341 | 0.331 |
+| 26 | JEPA from 20, +6 | 0.305 | 0.338 | **0.478** | 0.432 | 0.391 |
+| 40 | diffusion | 0.183 | 0.358 | **0.452** | 0.341 | 0.351 |
+| 41 | JEPA from 4, full | 0.260 | 0.271 | **0.383** | 0.368 | 0.344 |
+| 41 | JEPA from 8, full | 0.220 | 0.266 | **0.393** | 0.386 | 0.370 |
+| 41 | JEPA from 12, full | 0.272 | 0.288 | **0.397** | 0.367 | 0.335 |
+| 41 | JEPA from 16, full | 0.268 | 0.292 | **0.417** | 0.380 | 0.348 |
+| 41 | JEPA from 20, full | 0.259 | 0.367 | **0.447** | 0.414 | 0.390 |
+
+**Readouts chosen by CCA:**
+- **Usually L6.mlp_out or L5.mlp_out**, with k = 16–32 components and reg 0.01.
+- **Exceptions:** L7 for diffusion at 26 and for JEPA from 12 at 18.
+
+**Reading:**
+1. **With CCA, JEPA gives no gain in cross-modal binding alignment.**
+   - Matched differences (JEPA − diffusion) are +0.006, +0.012, −0.007, −0.027 and +0.066, about +0.01 on
+     average. All but the last are within noise, and the +0.066 at 26 comes from a weak diffusion point.
+   - **Long JEPA lowers the ceiling:** all 41-epoch branches are at or below diffusion-only at 40
+     (0.38–0.45 vs 0.45). The earlier the branch, the worse.
+2. **With plain ridge, JEPA helps consistently** (+0.1: 0.17–0.21 → 0.29–0.31). A short JEPA phase moves
+   text binding into higher-variance directions, so even a naive map picks it up.
+3. **Probe-based scorers gain +0.04 to +0.09 with short JEPA.** These are map → text probe and fact vs
+   fact. They track JEPA's faster within-text binding, but their best (0.459) does not exceed CCA on
+   diffusion-only text.
+4. **Whitened ridge:** no gain from short JEPA; four of the five long branches drop to 0.27–0.29.
+
+**Conclusion:** short text I-JEPA makes binding more *prominent*, easier for simple readouts and probes,
+but it does not raise the amount of binding structure that is linearly shared with the image model.
+Longer JEPA reduces it.
+
+**Caveats:**
+- Only one image model (40 epochs). Pairs with the image model at each text model's own epoch are still
+  running.
+- One seed per model, and image overlap as in §3.3.
+
+Results: `outputs/eval_hard_xret_variants/<text label>__denseI_e040_IMAGE.json`, where text labels are
+`denseT_eNNN_TEXT` and `ijepa_fromKK_totNNN_TEXT`.
