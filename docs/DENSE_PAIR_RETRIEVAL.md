@@ -552,3 +552,60 @@ Results:
 - hard: `outputs/eval_hard_xret_variants/<text>__<image>.json`.
 - Labels: `denseT_e01{4,6}_TEXT`, `denseI_e01{4,6}_IMAGE`, `ijepa_from12_tot01{4,6}_TEXT`,
   `ijepaI_{s15t45,tinyt45}_tot01{4,6}_IMAGE`.
+
+## 14. Does CCA work by discarding modality-specific information?
+
+**Question:** CCA multiplies each modality's features by its own projection matrix. Do those matrices
+zero out the modality-specific variation (image appearance and layout, text wording) and keep only
+the shared scene content? If so, that would explain why CCA beats ridge and the unpaired method.
+
+**Method** (`scripts/feature_variance_sources.py`):
+1. **Fit CCA** (regularisation 0.01) between image and text features at L6.mlp_out, on the 7000
+   paired fit + val scenes.
+2. **Project** both modalities onto the top **k = 16** canonical directions (the size CCA usually
+   picked in §11–13).
+3. **Variance kept:** how much of each modality's feature variance the 16 canonical coordinates
+   carry (held-out linear reconstruction).
+4. **What the coordinates encode:** held-out R² (ridge fitted on 6000 scenes, scored on 2000) of
+   the canonical coordinates from:
+   - **content:** the 40 scene counts;
+   - **+ layout:** object positions, occupancy grid, depth, spacing;
+   - **+ VQ histogram:** image appearance;
+   - **+ words:** the caption's bag of words and length (text wording).
+
+   The same R² is also computed on the raw features for comparison.
+
+**Results** (k = 16):
+
+| Model | Variance kept, image / text | Image coords: content (raw features) | + layout | + VQ appearance | Text coords: content (raw) | + wording |
+|---|---|---|---|---|---|---|
+| separate dense, 40 epochs | **0.19 / 0.48** | **0.56** (0.14) | +0.00 | +0.13 | 0.64 (0.47) | +0.00 |
+| shared base (dropout trunk), 13 | 0.26 / 0.44 | 0.57 (0.20) | +0.00 | +0.14 | 0.64 (0.45) | +0.00 |
+| shared + JEPA A, 13 | 0.24 / 0.41 | 0.54 (0.16) | +0.00 | +0.11 | 0.63 (0.42) | +0.00 |
+| shared + JEPA B, 13 | 0.24 / 0.41 | 0.54 (0.16) | +0.00 | +0.12 | 0.63 (0.42) | +0.00 |
+| separate JEPA × JEPA, 13 | 0.24 / 0.36 | 0.55 (0.15) | +0.00 | +0.13 | 0.62 (0.36) | +0.00 |
+
+With k = 8 the image coordinates reach 0.65–0.77 content. As k grows toward 384, the projection keeps
+everything and the content share falls back towards the raw value.
+
+**Reading:**
+- **Yes, CCA discards most of each space.** The 16 canonical directions keep only 19–26% of the image
+  variance and 36–48% of the text variance.
+- **What it keeps is mostly scene content:**
+  - 0.54–0.57 of the image coordinates are explained by content, vs 0.14–0.20 of the raw image
+    features;
+  - layout and wording add nothing, i.e. they're zeroed out;
+  - a little VQ appearance leaks through (+0.11–0.14).
+- **This is why CCA succeeds where ridge and the unpaired method fail.** It picks the small shared
+  content subspace and drops the rest. The unpaired method (Schnaus et al., arXiv:2610.09411)
+  can't make that selection without pairs: it sees the whole clouds, dominated by
+  appearance and wording.
+- **JEPA doesn't make the CCA subspace purer** (0.54–0.57 for every model). It shrinks the
+  modality-specific part *before* CCA, so CCA has less to throw away.
+- **Link to cross-view image JEPA** (`docs/CROSS_VIEW_IMAGE_JEPA.md`): cross-view training moved
+  content into the image's top principal directions, but CCA was already extracting that content. So
+  hard CCA didn't improve, while PCA content share and CKA did.
+- **Caveat:** canonical coordinates are whitened, so these R² values weight every canonical
+  direction equally.
+
+Results: `outputs/eval_rosetta/variance_sources.json`, `outputs/eval_rosetta/variance_sources_B.json`.
