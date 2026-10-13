@@ -1,0 +1,119 @@
+# Detail gate t=0.3 (more of the schedule trains the trunk). From image dense epoch 12.
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  num_codes: 512
+  embed_dim: 64
+data:
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  caption_field: caption_human
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  mode: image_only
+  balanced_modalities: false
+  max_text_length: 192
+model:
+  grid_size:
+  - 16
+  - 24
+  d_model: 384
+  n_layers: 8
+  n_heads: 6
+  mlp_ratio: 4
+  dropout: 0.1
+  use_modality_embeddings: false
+diffusion:
+  objective: image
+  eps: 0.001
+  unweighting: false
+  full_mask_probability: 0.0
+  weight: 1.0
+  train_fixed_t: null
+  mask_block_2d: false
+  mask_block_scale:
+  - 0.15
+  - 0.2
+  mask_block_aspect:
+  - 0.75
+  - 1.5
+  detail_gate_t: 0.3
+lora:
+  train_mode: dense_private
+  private_rank: 128
+  rank: 384
+  alpha: 128
+  dropout: 0.0
+  freeze_base: false
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+train:
+  batch_size: 64
+  epochs: 2
+  lr: 0.0003
+  weight_decay: 0.0
+  max_grad_norm: 50.0
+  gradient_accumulation_steps: 4
+  num_workers: 8
+  amp: bf16
+  log_every: 10
+  eval_every: 1
+  save_every: 1
+  val_max_samples: 2048
+  seed: 20260921
+  output_dir: outputs/image_detailgate_t03_from_dense_ep12_2e
+  probe_every_steps: 0
+  init_checkpoint: outputs/image_dense_diffusion_2_5m_40e/epoch_011.pt
+alignment:
+  gradient_balance_enabled: false
+  shared_gradient_diagnostics: false
+  objective_gradient_diagnostics_every: 0
+  modality_adversarial_enabled: false
+  sigreg_enabled: false
+  shared_jepa_enabled: false
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_ramp_steps: 5000
+  modulewise_jepa_mode: none
+  modulewise_hsic_enabled: false
+  data2vec_hidden: false
+  data2vec_mode: layerwise
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_top_k: 8
+  data2vec_beta: 2.0
+  data2vec_weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  temperature: 1.0
+  reveal_order: confidence
+wandb:
+  enabled: true
+  project: Platonic_CLEVR_data2vec_faithful
+  entity: zahra-delbari-university-of-bern
+  group: image_detail_to_private
+  run_name: image_detailgate_t03_from_dense_ep12_2e
+  tags:
+  - image-only
+  - dense_private
+  - from-dense-ep12
+  - detail-to-private

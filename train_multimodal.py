@@ -228,6 +228,13 @@ def parse_args():
              "representation objective while the private branch carries reconstruction. "
              "Requires a JEPA objective and an unfrozen trunk.",
     )
+    parser.add_argument(
+        "--detail-gate-t", type=float, default=diffusion.get("detail_gate_t"),
+        help="dense_private / lora only, plain diffusion: samples with mask rate t >= this value "
+             "run trunk-only (private routes off) and train the trunk; samples below it run "
+             "trunk + private and train the private adapters alone, so low-mask local detail "
+             "never reaches the shared weights.",
+    )
     parser.add_argument("--lora-alpha", type=float, default=lora.get("alpha", 32))
     parser.add_argument("--lora-dropout", type=float, default=lora.get("dropout", 0.05))
     parser.add_argument("--lora-targets", nargs="+", default=lora.get("target_modules", ["qkv", "out_proj", "mlp.0", "mlp.3"]))
@@ -357,6 +364,12 @@ def parse_args():
         help="Retain the slim probe-time model checkpoint after evaluation.",
     )
     parser.add_argument("--resume", default=train.get("resume"))
+    parser.add_argument(
+        "--view-cache", default=data.get("view_cache"),
+        help="image_only + data2vec: a scripts/make_augmented_views.py cache (two photometric token "
+             "views per image, rows = the first N images of the manifest). Training uses those N "
+             "images; the student sees one view (masked), the EMA teacher the other (clean).",
+    )
     parser.add_argument("--init-checkpoint", default=train.get("init_checkpoint"),
                         help="Initialize model weights only; unlike --resume, starts a fresh optimizer/run")
     parser.add_argument("--log-every", type=int, default=train.get("log_every", 20))
@@ -908,6 +921,37 @@ def build_model(args, vocabulary_size: int):
                 for parameter in module.parameters():
                     parameter.requires_grad_(True)
     return model, lora_modules
+
+
+class CrossViewDataset(torch.utils.data.Dataset):
+    """Image items whose tokens come from two photometric views; the student view and the
+    teacher view are drawn at random per item (rows = the first N images of the source)."""
+
+    def __init__(self, base, views):
+        self.base, self.a, self.b = base, views["view_a"], views["view_b"]
+
+    def __len__(self):
+        return len(self.a)
+
+    def __getitem__(self, index):
+        item = dict(self.base[index])
+        first, second = (self.a, self.b) if torch.rand(()) < 0.5 else (self.b, self.a)
+        item["image_tokens"] = first[index].long()
+        item["image_tokens_alt"] = second[index].long()
+        return item
+
+
+class CrossViewCollate:
+    """Collate the student view as usual and the teacher view into ``alt_input_ids``."""
+
+    def __init__(self, collator):
+        self.collator = collator
+
+    def __call__(self, items):
+        batch = self.collator(items)
+        alt = self.collator([dict(item, image_tokens=item["image_tokens_alt"]) for item in items])
+        batch["alt_input_ids"] = alt["input_ids"]
+        return batch
 
 
 def move_batch(batch: dict[str, torch.Tensor], device: str) -> dict[str, torch.Tensor]:
@@ -1577,6 +1621,15 @@ def main():
         raise ValueError("Balanced unpaired training requires an even batch size >= 2")
     if args.data_mode == "text_only" and args.objective != "text":
         raise ValueError("data.mode=text_only requires diffusion.objective=text")
+    if args.detail_gate_t is not None:
+        if not 0 < args.detail_gate_t < 1:
+            raise ValueError("diffusion.detail_gate_t must be in (0, 1)")
+        if args.train_mode not in {"lora", "dense_private"} or args.freeze_base:
+            raise ValueError("diffusion.detail_gate_t needs trainable private adapters and an unfrozen trunk")
+        if args.data2vec_hidden or args.lejepa_views or args.diffusion_private_only:
+            raise ValueError("diffusion.detail_gate_t is a plain-diffusion routing; disable JEPA / LeJEPA")
+        if args.train_fixed_t is not None or args.private_dropout > 0:
+            raise ValueError("diffusion.detail_gate_t needs a random t schedule and no private dropout")
     if not 0 <= args.private_dropout < 1:
         raise ValueError("lora.private_dropout must be in [0, 1)")
     if args.private_dropout > 0 and args.train_mode not in {"lora", "dense_private"}:
@@ -1893,6 +1946,13 @@ def main():
     else:
         train_dataset, val_dataset = train_source, val_source
         loader_batch_size = args.batch_size
+    train_collate = collator
+    if args.view_cache:
+        if args.data_mode != "image_only" or not args.data2vec_hidden:
+            raise ValueError("data.view_cache needs data.mode image_only and data2vec_hidden")
+        train_dataset = CrossViewDataset(train_dataset, torch.load(args.view_cache, map_location="cpu", weights_only=False))
+        train_collate = CrossViewCollate(collator)
+        log.info(f"cross-view data2vec: {len(train_dataset)} images with two photometric views from {args.view_cache}")
     train_subset_artifact = None
     train_subset_sha256 = None
     if args.max_train_samples is not None:
@@ -1952,7 +2012,7 @@ def main():
         if _WORLD > 1 else None
     )
     train_loader = DataLoader(train_dataset_for_loader, loader_batch_size, shuffle=train_sampler is None,
-                              sampler=train_sampler, num_workers=args.num_workers, collate_fn=collator,
+                              sampler=train_sampler, num_workers=args.num_workers, collate_fn=train_collate,
                               pin_memory=True, drop_last=True)
     if _WORLD > 1:
         log.info(f"distributed: {_WORLD} ranks, per-rank batch {args.batch_size} x accumulation "
@@ -2316,7 +2376,7 @@ def main():
               f"block={args.cross_modal_moment_layer}, ema decay={args.cross_modal_moment_decay}",
               flush=True)
     private_parameters, non_private_parameters = [], []
-    if args.diffusion_private_only:
+    if args.diffusion_private_only or args.detail_gate_t is not None:
         private_ids = set()
         for _, module in iter_tri_lora(model):
             for branch in ("text", "image"):
@@ -2330,7 +2390,8 @@ def main():
         if not private_parameters:
             raise ValueError("--diffusion-private-only needs trainable private adapters; use "
                              "--train-mode dense_private (or lora) without --freeze-base")
-        if not args.data2vec_hidden and args.modulewise_jepa_mode == "none":
+        if (args.diffusion_private_only and not args.data2vec_hidden
+                and args.modulewise_jepa_mode == "none"):
             raise ValueError("--diffusion-private-only needs a representation objective to train "
                              "the trunk with; enable data2vec or modulewise JEPA")
         print(f"split gradients: diffusion -> {len(private_parameters)} private adapter tensors "
@@ -2474,6 +2535,52 @@ def main():
                 )
                 if not masked.any():
                     continue
+                if args.detail_gate_t is not None:
+                    # Detail gate: high-mask samples train the trunk alone (private off);
+                    # low-mask samples run trunk + private, and their gradient reaches the
+                    # private adapters only. Each part is weighted by its share of masked
+                    # tokens, so the sum is the ordinary masked-diffusion loss.
+                    high = t >= args.detail_gate_t
+                    total_masked = masked.sum().clamp_min(1)
+                    denominator = len(sub_batches) * args.gradient_accumulation_steps
+                    parts, unweighted_parts = {}, {}
+                    gradient_balancer.begin(modality_name)
+                    try:
+                        for part_name, rows, trunk_only in (("trunk", high, True), ("private", ~high, False)):
+                            index = rows.nonzero(as_tuple=True)[0]
+                            if index.numel() == 0 or not masked[index].any():
+                                continue
+                            routes = sub_batch["route_ids"][index]
+                            if trunk_only:
+                                routes = torch.full_like(routes, -1)
+                            share = masked[index].sum() / total_masked
+                            with torch.autocast(device_type=device, dtype=amp_dtype, enabled=amp_dtype is not None):
+                                part_logits = model(
+                                    corrupted[index], sub_batch["attention_mask"][index],
+                                    sub_batch["position_ids"][index], sub_batch["modality_ids"][index], routes,
+                                )
+                                part = masked_loss(part_logits, sub_batch["input_ids"][index], masked[index],
+                                                   t[index], not args.unweighting) * share
+                                unweighted_parts[part_name] = (masked_loss(
+                                    part_logits, sub_batch["input_ids"][index], masked[index], t[index], False
+                                ) * share).detach()
+                            if trunk_only:
+                                (part / denominator).backward()
+                            else:
+                                accumulate_split_gradients(diffusion=part / denominator, representation=None,
+                                                           private=private_parameters, rest=[])
+                            parts[part_name] = part.detach()
+                    finally:
+                        gradient_balancer.end()
+                    if not parts:
+                        continue
+                    task_value = sum(parts.values()).item()
+                    losses[modality_name] = optimized_losses[modality_name] = task_value
+                    unweighted_losses[modality_name] = sum(unweighted_parts.values()).item()
+                    masked_fractions[modality_name] = masked.float().mean().item()
+                    for part_name, value in parts.items():
+                        shared_jepa_layer_losses.setdefault(modality_name, {})[f"gate_{part_name}_loss"] = value.item()
+                    continue
                 with torch.autocast(device_type=device, dtype=amp_dtype, enabled=amp_dtype is not None):
                     if data2vec_hidden_active:
                         # Trunk-only JEPA: private LoRA routes off (-1) in student and
@@ -2535,14 +2642,14 @@ def main():
                                 )
                                 if args.data2vec_target_type == "ffn_output":
                                     _, _, teacher_hidden = ema_teacher(
-                                        sub_batch["input_ids"], sub_batch["attention_mask"],
+                                        sub_batch.get("alt_input_ids", sub_batch["input_ids"]), sub_batch["attention_mask"],
                                         sub_batch["position_ids"], sub_batch["modality_ids"],
                                         jepa_routes, return_data2vec_by_layer=True,
                                         input_embeddings=clean_input_embeddings,
                                     )
                                 else:
                                     _, teacher_hidden = ema_teacher(
-                                        sub_batch["input_ids"], sub_batch["attention_mask"],
+                                        sub_batch.get("alt_input_ids", sub_batch["input_ids"]), sub_batch["attention_mask"],
                                         sub_batch["position_ids"], sub_batch["modality_ids"],
                                         jepa_routes, return_hidden_by_layer=True,
                                         input_embeddings=clean_input_embeddings,
@@ -3182,6 +3289,12 @@ def main():
                         f"/emb_cos={values['embedding_cosine']:.3f}/proj_cos={values['projection_cosine']:.3f}"
                         f"/kept_g={values['global_kept_fraction']:.2f}"
                         f"/kept_l={values.get('local_kept_fraction', float('nan')):.2f}"
+                        for name, values in shared_jepa_layer_losses.items()
+                    )
+                if args.detail_gate_t is not None:
+                    jepa_text += " " + " ".join(
+                        f"gate_{name}/trunk={values.get('gate_trunk_loss', float('nan')):.4f}"
+                        f"/private={values.get('gate_private_loss', float('nan')):.4f}"
                         for name, values in shared_jepa_layer_losses.items()
                     )
                 hsic_text = " ".join(

@@ -1,0 +1,118 @@
+# Control: frozen dense-diffusion trunk (13 epochs) + fresh private image LoRA, plain diffusion.
+alignment:
+  data2vec_beta: 2.0
+  data2vec_hidden: false
+  data2vec_layers:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  data2vec_mode: layerwise
+  data2vec_top_k: 8
+  data2vec_weight: 1.0
+  gradient_balance_enabled: false
+  modality_adversarial_enabled: false
+  modulewise_hsic_enabled: false
+  modulewise_jepa_mode: none
+  objective_gradient_diagnostics_every: 0
+  shared_gradient_diagnostics: false
+  shared_jepa_ema_decay: 0.999
+  shared_jepa_ema_decay_final: 0.9999
+  shared_jepa_ema_enabled: true
+  shared_jepa_ema_ramp_steps: 5000
+  shared_jepa_enabled: false
+  shared_jepa_predictor_hidden_multiplier: 2
+  shared_jepa_predictor_lr: 0.0003
+  shared_jepa_start_epoch: 0
+  shared_jepa_warmup_steps: 1000
+  sigreg_enabled: false
+data:
+  balanced_modalities: false
+  caption_field: caption_human
+  max_text_length: 192
+  mode: image_only
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+diffusion:
+  eps: 0.001
+  full_mask_probability: 0.0
+  mask_block_2d: false
+  mask_block_aspect:
+  - 0.75
+  - 1.5
+  mask_block_scale:
+  - 0.15
+  - 0.2
+  objective: image
+  train_fixed_t: null
+  unweighting: false
+  weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  reveal_order: confidence
+  temperature: 1.0
+lora:
+  alpha: 128
+  dropout: 0.0
+  freeze_base: true
+  private_rank: 128
+  rank: 384
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  train_mode: dense_private
+model:
+  d_model: 384
+  dropout: 0.1
+  grid_size:
+  - 16
+  - 24
+  mlp_ratio: 4
+  n_heads: 6
+  n_layers: 8
+  use_modality_embeddings: false
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  embed_dim: 64
+  num_codes: 512
+train:
+  amp: bf16
+  batch_size: 64
+  epochs: 1
+  eval_every: 1
+  gradient_accumulation_steps: 4
+  init_checkpoint: outputs/image_dense_diffusion_2_5m_40e/epoch_012.pt
+  log_every: 10
+  lr: 0.0003
+  max_grad_norm: 50.0
+  num_workers: 8
+  output_dir: outputs/image_frozen_dense_trunk_privdiff_1e
+  probe_every_steps: 0
+  save_every: 1
+  seed: 20260921
+  val_max_samples: 2048
+  weight_decay: 0.0
+wandb:
+  enabled: true
+  entity: zahra-delbari-university-of-bern
+  group: image_frozen_trunk_private_diffusion
+  project: Platonic_CLEVR_data2vec_faithful
+  run_name: image_frozen_dense_trunk_privdiff_1e
+  tags:
+  - image-only
+  - frozen-trunk
+  - private-lora
+  - plain-diffusion
