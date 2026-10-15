@@ -5,7 +5,7 @@
 #SBATCH --qos=job_gpu_preemptable
 #SBATCH --gres=gpu:h100:4
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=200G
+#SBATCH --mem-per-cpu=6G             # UBELIX rejects --mem; 32 x 6 GB = 192 GB
 #SBATCH --time=01:30:00
 #SBATCH --requeue
 #SBATCH --output=slurm_pixmo_%j.out
