@@ -48,6 +48,8 @@ REPO = Path(__file__).resolve().parents[1]
 ALIGN = Path(os.environ.get("PLATONIC_ALIGN", Path.home() / "platonic_align"))
 OUT = Path(os.environ.get("PIXMO_DATA", Path.home() / "platonic_pixmo_data"))
 CHUNKS = ALIGN / "data" / "pixmo_cap" / "images"
+OMNI = Path(os.environ.get("PIXMO_OMNI", Path.home() / "Omni" / "data" / "pixmo_cap"))  # full PixMo download (Omni project)
+OMNI_BLOCK = 5000
 METADATA = ALIGN / "data" / "pixmo_cap" / "data"
 NUM_TEST, NUM_PROBE, SIZE = 5000, 10000, 256
 sys.path.insert(0, str(REPO))
@@ -77,32 +79,83 @@ def chunk_paths() -> list[str]:
     return paths[: int(limit)] if limit else paths
 
 
+def omni_paths() -> dict[int, Path]:
+    """PixMo id (= row of the metadata parquet) -> image file of the Omni project's full PixMo download."""
+    paths = {}
+    if (OMNI / "paired.jsonl").exists() and not os.environ.get("PIXMO_MAX_CHUNKS"):
+        with open(OMNI / "paired.jsonl") as handle:
+            for line in handle:
+                record = json.loads(line)
+                paths[int(record["id"])] = OMNI / record["image_path"]
+    return paths
+
+
 def splits() -> dict:
-    downloaded = [i for path in chunk_paths() for i in pq.read_table(path, columns=["id"]).column(0).to_pylist()]
-    test, rest = downloaded[:NUM_TEST], downloaded[NUM_TEST:]
+    """test: the first 5,000 images of our own download (the PixMo test set of every oracle-W result); the training pool
+    is every other image of the Omni full download (or of our chunks when it is absent / for smoke tests)."""
+    test = []
+    for path in chunk_paths():
+        test += pq.read_table(path, columns=["id"]).column(0).to_pylist()
+        if len(test) >= NUM_TEST:
+            break
+    test = test[:NUM_TEST]
+    omni = omni_paths()
+    if omni:
+        pool = sorted(set(omni) - set(test))
+    else:
+        downloaded = [i for path in chunk_paths() for i in pq.read_table(path, columns=["id"]).column(0).to_pylist()]
+        pool = [i for i in downloaded if i not in set(test)]
     half = lambda i: int(hashlib.sha256(f"pixmo-{i}".encode()).hexdigest(), 16) % 2
-    images = [i for i in rest if half(i) == 0]
-    captions = [i for i in rest if half(i) == 1]
+    images = [i for i in pool if half(i) == 0]
+    captions = [i for i in pool if half(i) == 1]
     return {"test": test, "images": images, "captions": captions, "probe": images[:NUM_PROBE],
-            "num_chunks": len(chunk_paths())}
+            "num_chunks": len(chunk_paths()), "source": "omni" if omni else "chunks"}
+
+
+class OmniImages(torch.utils.data.Dataset):
+    def __init__(self, items: list[tuple[int, Path]]) -> None:
+        self.items = items
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __getitem__(self, k: int):
+        from PIL import Image
+
+        Image.MAX_IMAGE_PIXELS = None
+        i, path = self.items[k]
+        try:
+            image = Image.open(path)
+            image.draft("RGB", (2 * SIZE, 2 * SIZE))  # JPEG: decode at reduced scale, much faster for large photos
+            image = image.convert("RGB").resize((SIZE, SIZE), Image.BICUBIC)
+            return i, torch.from_numpy(np.asarray(image).copy()).permute(2, 0, 1), True
+        except Exception:  # a few downloaded files are truncated / not images: skipped, dropped from the split at merge
+            return i, torch.zeros(3, SIZE, SIZE, dtype=torch.uint8), False
 
 
 @torch.inference_mode()
-def tokenize(shard: int, num_shards: int, gpu: int) -> None:
-    """Codes of every test and A image (clean + two photometric views), one cached file per download chunk, so the
-    work is incremental: rerun after more chunks are downloaded and only the new chunks are tokenized."""
+def tokenize(shard: int, num_shards: int, gpu: int, batch_size: int = 64, workers: int = 6) -> None:
+    """Codes (clean + two photometric views) of every test and A image. Images already tokenized from our own
+    download chunks (parts/chunk_*_codes.pt) are reused; every other A image is read from the Omni download, in fixed
+    blocks of 5,000 ids (parts/omni_XXXX_codes.pt) shared out over the shards. Rerunning skips finished blocks."""
     sys.path.insert(0, str(ALIGN / "distill"))
     sys.path.insert(0, str(ALIGN / "scripts"))
     from prepare import load_vqgan  # noqa: E402  (platonic_align/distill/prepare.py: MaskGIT VQGAN only)
-    from PIL import Image
-    import io
 
     split = splits()
-    wanted = set(split["test"]) | set(split["images"])
     (OUT / "parts").mkdir(parents=True, exist_ok=True)
-    todo = [p for k, p in enumerate(chunk_paths()) if k % num_shards == shard and not part_path(p).exists()]
+    covered = set()
+    for p in sorted((OUT / "parts").glob("chunk_*_codes.pt")):
+        covered.update(torch.load(p, weights_only=False)["ids"].tolist())
+    missing_test = [i for i in split["test"] if i not in covered]
+    if missing_test:
+        raise RuntimeError(f"{len(missing_test)} test images are not tokenized; tokenize chunks 0-1 first")
+    omni = omni_paths()
+    images = split["images"]
+    blocks = [images[b : b + OMNI_BLOCK] for b in range(0, len(images), OMNI_BLOCK)]
+    todo = [k for k in range(len(blocks)) if k % num_shards == shard and not omni_part(k).exists()]
+    print(f"shard {shard}: {len(covered)} images reused from chunk parts; {len(todo)} Omni blocks to do", flush=True)
     if not todo:
-        print(f"shard {shard}: nothing to do", flush=True)
         return
     device = torch.device(f"cuda:{gpu}")
     vqgan = load_vqgan(device)
@@ -112,26 +165,34 @@ def tokenize(shard: int, num_shards: int, gpu: int) -> None:
         return index.view(-1, 16, 16).to(torch.int16).cpu()
 
     start = time.time()
-    for n, path in enumerate(todo):
+    for n, k in enumerate(todo):
+        items = [(i, omni[i]) for i in blocks[k] if i not in covered]
         g = torch.Generator(device=device)
-        g.manual_seed(20261015 + int(Path(path).stem.split("_")[1]))  # per chunk: the same views whatever the sharding
-        table = pq.read_table(path, columns=["id", "image"])
-        rows = [(i, im["bytes"]) for i, im in zip(table.column(0).to_pylist(), table.column(1).to_pylist()) if i in wanted]
-        ids, clean, view_a, view_b = [], [], [], []
-        for b in range(0, len(rows), 64):
-            batch = rows[b : b + 64]
-            images = [torch.from_numpy(np.asarray(Image.open(io.BytesIO(data)).convert("RGB").resize((SIZE, SIZE), Image.BICUBIC)).copy()).permute(2, 0, 1)
-                      for _, data in batch]
-            x = torch.stack(images).to(device).float() / 255
-            ids.extend(i for i, _ in batch)
+        g.manual_seed(20261015 + 100_000 + k)
+        ids, clean, view_a, view_b, failed = [], [], [], [], []
+        loader = torch.utils.data.DataLoader(OmniImages(items), batch_size=batch_size, num_workers=workers)
+        for batch_ids, pixels, ok in loader:
+            failed.extend(batch_ids[~ok].tolist())
+            batch_ids, pixels = batch_ids[ok], pixels[ok]
+            if len(batch_ids) == 0:
+                continue
+            x = pixels.to(device).float() / 255
+            ids.extend(batch_ids.tolist())
             clean.append(encode(x))
             view_a.append(encode(augment(x, g)))
             view_b.append(encode(augment(x, g)))
         empty = torch.zeros(0, 16, 16, dtype=torch.int16)
-        torch.save({"ids": torch.tensor(ids, dtype=torch.long), "clean": torch.cat(clean) if clean else empty,
-                    "view_a": torch.cat(view_a) if view_a else empty, "view_b": torch.cat(view_b) if view_b else empty},
-                   part_path(path))
-        print(f"shard {shard}: {n + 1}/{len(todo)} chunks ({Path(path).name}, {len(ids)} images), {time.time() - start:.0f}s", flush=True)
+        part = {"ids": torch.tensor(ids, dtype=torch.long), "clean": torch.cat(clean) if clean else empty,
+                "view_a": torch.cat(view_a) if view_a else empty, "view_b": torch.cat(view_b) if view_b else empty,
+                "failed": failed}
+        torch.save(part, omni_part(k).with_suffix(".partial"))
+        omni_part(k).with_suffix(".partial").rename(omni_part(k))
+        print(f"shard {shard}: block {n + 1}/{len(todo)} (omni_{k:04d}, {len(ids)} images, {len(failed)} unreadable), "
+              f"{time.time() - start:.0f}s", flush=True)
+
+
+def omni_part(k: int) -> Path:
+    return OUT / "parts" / f"omni_{k:04d}_codes.pt"
 
 
 def part_path(chunk: str) -> Path:
@@ -146,11 +207,16 @@ def write_jsonl(path: Path, rows: list[dict]) -> None:
 
 def merge(num_shards: int) -> None:
     split = splits()
-    missing = [p for p in chunk_paths() if not part_path(p).exists()]
-    assert not missing, f"{len(missing)} chunks not tokenized yet, e.g. {missing[0]}"
-    parts = [torch.load(part_path(p), weights_only=False) for p in chunk_paths()]
+    parts = [torch.load(p, weights_only=False) for p in sorted((OUT / "parts").glob("*_codes.pt"))]
     ids = torch.cat([p["ids"] for p in parts])
-    row = {int(i): r for r, i in enumerate(ids.tolist())}
+    row = {int(i): r for r, i in enumerate(ids.tolist())}  # duplicates (an id in a chunk part and an Omni block) keep the last
+    unreadable = {i for p in parts for i in p.get("failed", [])}
+    absent = [i for i in split["test"] + split["images"] if i not in row and i not in unreadable]
+    assert not absent, f"{len(absent)} test / A images have no codes yet, e.g. {absent[:3]}; run --tokenize"
+    assert not [i for i in split["test"] if i not in row], "a test image has no codes"
+    split["images"] = [i for i in split["images"] if i in row]  # unreadable files dropped
+    split["probe"] = split["images"][:NUM_PROBE]
+    split["unreadable_dropped"] = len(unreadable)
     codes = {k: torch.cat([p[k] for p in parts]) for k in ("clean", "view_a", "view_b")}
     gather = lambda key, which: codes[key][torch.tensor([row[i] for i in which])].to(torch.uint16)
 
@@ -190,9 +256,11 @@ def main() -> None:
     p.add_argument("--shard", type=int, default=0)
     p.add_argument("--num-shards", type=int, default=1)
     p.add_argument("--gpu", type=int, default=0)
+    p.add_argument("--batch-size", type=int, default=64)
+    p.add_argument("--workers", type=int, default=6)
     a = p.parse_args()
     if a.tokenize:
-        tokenize(a.shard, a.num_shards, a.gpu)
+        tokenize(a.shard, a.num_shards, a.gpu, a.batch_size, a.workers)
     if a.merge:
         merge(a.num_shards)
 
