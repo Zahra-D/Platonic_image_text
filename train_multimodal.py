@@ -182,6 +182,8 @@ def parse_args():
     parser.add_argument("--data-mode", choices=["paired", "unpaired", "text_only", "image_only"], default=data.get("mode", "paired"))
     parser.add_argument("--balanced-modalities", action=argparse.BooleanOptionalAction, default=data.get("balanced_modalities", True))
     parser.add_argument("--max-text-length", type=int, default=data.get("max_text_length", 128))
+    parser.add_argument("--text-min-frequency", type=int, default=data.get("text_min_frequency", 1),
+                        help="words seen fewer times in the training captions map to <unk> (vocabulary size control)")
     parser.add_argument("--num-image-codes", type=int, default=tokenizer.get("num_codes", 512))
     parser.add_argument("--vqvae-checkpoint", default=tokenizer.get("checkpoint"))
     parser.add_argument("--vqvae-embed-dim", type=int, default=tokenizer.get("embed_dim", 64))
@@ -369,6 +371,17 @@ def parse_args():
         help="image_only + data2vec: a scripts/make_augmented_views.py cache (two photometric token "
              "views per image, rows = the first N images of the manifest). Training uses those N "
              "images; the student sees one view (masked), the EMA teacher the other (clean).",
+    )
+    parser.add_argument(
+        "--paraphrase-cache", default=data.get("paraphrase_cache"),
+        help="text_only / unpaired + data2vec: one paraphrase per line, aligned with the text "
+             "manifest rows (scripts/make_paraphrase_cache.py). The EMA teacher also reads the "
+             "paraphrase, and the pooled (global) data2vec target for text comes from it.",
+    )
+    parser.add_argument(
+        "--data2vec-global-paraphrase-only", action=argparse.BooleanOptionalAction,
+        default=alignment.get("data2vec_global_paraphrase_only", True),
+        help="Apply the data2vec global term only to sub-batches that carry a paraphrase view.",
     )
     parser.add_argument("--init-checkpoint", default=train.get("init_checkpoint"),
                         help="Initialize model weights only; unlike --resume, starts a fresh optimizer/run")
@@ -941,17 +954,68 @@ class CrossViewDataset(torch.utils.data.Dataset):
         return item
 
 
+class ParaphraseDataset(torch.utils.data.Dataset):
+    """Text items with a paraphrase of the same scene (``para_text``)."""
+
+    def __init__(self, base, paras):
+        self.base, self.paras = base, paras
+
+    def __len__(self):
+        return len(self.base)
+
+    def __getitem__(self, index):
+        return dict(self.base[index], para_text=self.paras[index])
+
+
+class ViewSource:
+    """Unpaired source whose items carry their second views: images restricted to the rows
+    of the photometric view cache (student / teacher view drawn at random), text with its
+    paraphrase.  Everything else is forwarded to the wrapped ClevrMultimodalDataset."""
+
+    def __init__(self, base, views=None, paras=None):
+        self.base, self.views, self.paras = base, views, paras
+        self.text_records = base.text_records
+        self.image_records = range(len(views["view_a"])) if views is not None else base.image_records
+        if paras is not None and len(paras) != len(self.text_records):
+            raise ValueError(f"paraphrase cache has {len(paras)} lines for {len(self.text_records)} captions")
+
+    def __getattr__(self, name):
+        return getattr(self.base, name)
+
+    def get_modality(self, index, modality):
+        item = self.base.get_modality(index, modality)
+        if modality == "text" and self.paras is not None:
+            item["para_text"] = self.paras[index]
+        if modality == "image" and self.views is not None:
+            first, second = ((self.views["view_a"], self.views["view_b"]) if torch.rand(()) < 0.5
+                             else (self.views["view_b"], self.views["view_a"]))
+            item["image_tokens"] = first[index].long()
+            item["image_tokens_alt"] = second[index].long()
+        return item
+
+
 class CrossViewCollate:
-    """Collate the student view as usual and the teacher view into ``alt_input_ids``."""
+    """Collate the student view as usual; the image teacher view goes to ``alt_input_ids``
+    (token-aligned), a text paraphrase to ``para_*`` (its own lengths and masks)."""
 
     def __init__(self, collator):
         self.collator = collator
 
-    def __call__(self, items):
+    def single(self, items):
         batch = self.collator(items)
-        alt = self.collator([dict(item, image_tokens=item["image_tokens_alt"]) for item in items])
-        batch["alt_input_ids"] = alt["input_ids"]
+        if "image_tokens_alt" in items[0]:
+            alt = self.collator([dict(item, image_tokens=item["image_tokens_alt"]) for item in items])
+            batch["alt_input_ids"] = alt["input_ids"]
+        if "para_text" in items[0]:
+            para = self.collator([dict(item, text=item["para_text"]) for item in items])
+            batch.update({f"para_{key}": value for key, value in para.items()})
         return batch
+
+    def __call__(self, items):
+        if items and "text_example" in items[0]:
+            return {"text_batch": self.single([item["text_example"] for item in items]),
+                    "image_batch": self.single([item["image_example"] for item in items])}
+        return self.single(items)
 
 
 def move_batch(batch: dict[str, torch.Tensor], device: str) -> dict[str, torch.Tensor]:
@@ -1934,7 +1998,7 @@ def main():
         initialization_payload = torch.load(initialization_path, map_location="cpu", weights_only=False)
         tokenizer = ClevrTextTokenizer(initialization_payload["text_vocabulary"])
     else:
-        tokenizer = ClevrTextTokenizer.build(train_source.texts)
+        tokenizer = ClevrTextTokenizer.build(train_source.texts, min_frequency=args.text_min_frequency)
     if _RANK == 0:
         tokenizer.save(output_dir / "text_tokenizer.json")
     collator = MultimodalCollator(tokenizer, args.num_image_codes, args.max_text_length)
@@ -1947,12 +2011,28 @@ def main():
         train_dataset, val_dataset = train_source, val_source
         loader_batch_size = args.batch_size
     train_collate = collator
-    if args.view_cache:
-        if args.data_mode != "image_only" or not args.data2vec_hidden:
-            raise ValueError("data.view_cache needs data.mode image_only and data2vec_hidden")
-        train_dataset = CrossViewDataset(train_dataset, torch.load(args.view_cache, map_location="cpu", weights_only=False))
+    if args.view_cache or args.paraphrase_cache:
+        if not args.data2vec_hidden:
+            raise ValueError("data.view_cache / data.paraphrase_cache need data2vec_hidden")
+        views = torch.load(args.view_cache, map_location="cpu", weights_only=False) if args.view_cache else None
+        paras = None
+        if args.paraphrase_cache:
+            with open(args.paraphrase_cache) as handle:
+                paras = [line.rstrip("\n") for line in handle]
+        if args.data_mode == "image_only" and views is not None and paras is None:
+            train_dataset = CrossViewDataset(train_dataset, views)
+        elif args.data_mode == "text_only" and paras is not None and views is None:
+            if len(paras) != len(train_dataset):
+                raise ValueError(f"paraphrase cache has {len(paras)} lines for {len(train_dataset)} captions")
+            train_dataset = ParaphraseDataset(train_dataset, paras)
+        elif args.data_mode == "unpaired":
+            train_dataset = BalancedUnpairedDataset(ViewSource(train_source, views, paras), seed=args.seed)
+        else:
+            raise ValueError("view_cache: image_only or unpaired; paraphrase_cache: text_only or unpaired")
         train_collate = CrossViewCollate(collator)
-        log.info(f"cross-view data2vec: {len(train_dataset)} images with two photometric views from {args.view_cache}")
+        log.info(f"cross-view data2vec: image views {'none' if views is None else len(views['view_a'])} "
+                 f"({args.view_cache}); text paraphrases {'none' if paras is None else len(paras)} ({args.paraphrase_cache}); "
+                 f"{len(train_dataset)} training items per epoch")
     train_subset_artifact = None
     train_subset_sha256 = None
     if args.max_train_samples is not None:
@@ -2288,7 +2368,8 @@ def main():
             "and target shared LoRA is suppressed only in bridge layers"
         )
 
-    vqvae = load_vqvae(args, device)
+    # The VQ-VAE only decodes sample images; runs without samples (e.g. PixMo, whose VQGAN lives elsewhere) skip it.
+    vqvae = load_vqvae(args, device) if args.gen_num_samples > 0 else None
     wandb_run = None
     if args.wandb and _RANK == 0:
         import wandb
@@ -2654,6 +2735,17 @@ def main():
                                         jepa_routes, return_hidden_by_layer=True,
                                         input_embeddings=clean_input_embeddings,
                                     )
+                                para_teacher_hidden = None
+                                if "para_input_ids" in sub_batch:
+                                    if args.data2vec_target_type == "ffn_output":
+                                        raise ValueError("paraphrase targets need data2vec_target_type block_residual")
+                                    para_routes = (torch.full_like(sub_batch["para_route_ids"], -1)
+                                                   if args.jepa_trunk_only else sub_batch["para_route_ids"])
+                                    _, para_teacher_hidden = ema_teacher(
+                                        sub_batch["para_input_ids"], sub_batch["para_attention_mask"],
+                                        sub_batch["para_position_ids"], sub_batch["para_modality_ids"],
+                                        para_routes, return_hidden_by_layer=True,
+                                    )
                             if was_training:
                                 ema_teacher.train()
                         if args.jepa_trunk_only and args.diffusion_weight > 0:
@@ -2676,11 +2768,16 @@ def main():
                             target_layer=args.data2vec_target_layer,
                             pool_mask=sub_batch["eligible_mask"],
                             token_weight=args.data2vec_token_weight,
-                            global_weight=args.data2vec_global_weight,
+                            global_weight=(args.data2vec_global_weight
+                                           if ("para_input_ids" in sub_batch or not args.data2vec_global_paraphrase_only)
+                                           else 0.0),
                             variance_weight=args.data2vec_variance_weight,
                             variance_target=args.data2vec_variance_target,
                             normalize_targets=not args.data2vec_teacherless,
                             stop_gradient=not args.data2vec_teacherless,
+                            global_teacher_hidden_by_layer=(None if args.data2vec_teacherless
+                                                            else para_teacher_hidden),
+                            global_pool_mask=sub_batch.get("para_eligible_mask"),
                         )
                         if args.data2vec_teacherless and args.data2vec_sigreg_weight > 0:
                             # SIGReg on the embedding distribution, one pooled

@@ -1,0 +1,100 @@
+alignment:
+  gradient_balance_enabled: false
+  modality_adversarial_enabled: false
+  modulewise_hsic_enabled: false
+  modulewise_jepa_mode: none
+  objective_gradient_diagnostics_every: 0
+  shared_gradient_diagnostics: false
+  shared_jepa_enabled: false
+  sigreg_enabled: false
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+data:
+  balanced_modalities: true
+  caption_field: caption_human
+  max_text_length: 192
+  mode: unpaired
+  token_cache_dir: outputs/image_only_2_5m_token_cache
+  train_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  train_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/train_image_only_2_5m.jsonl
+  train_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_2m/train_text_only_human.jsonl
+  val_dir: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible
+  val_manifest: ${CLEVR_DATA}/platonic_clevr_v1_5M_train_gpu_visible/val_image_only.jsonl
+  val_text_manifest: ${CLEVR_DATA}/platonic_text_only_v1_1m/val_text_only_human.jsonl
+diffusion:
+  eps: 0.001
+  full_mask_probability: 0.0
+  objective: both
+  unweighting: false
+  weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  reveal_order: confidence
+  temperature: 1.0
+lora:
+  alpha: 128
+  diffusion_private_only: false
+  dropout: 0.0
+  freeze_base: true
+  private_rank: 128
+  rank: 384
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  train_mode: dense_private
+  private_dropout: 0.0
+model:
+  d_model: 384
+  dropout: 0.1
+  grid_size:
+  - 16
+  - 24
+  mlp_ratio: 4
+  n_heads: 6
+  n_layers: 8
+  use_modality_embeddings: false
+tokenizer:
+  checkpoint: outputs/vqvae_training_bs128/best.pt
+  embed_dim: 64
+  num_codes: 512
+train:
+  amp: bf16
+  batch_size: 256
+  epochs: 4
+  eval_every: 1
+  gradient_accumulation_steps: 1
+  log_every: 10
+  lr: 0.0003
+  max_grad_norm: 50.0
+  num_workers: 8
+  output_dir: outputs/mm_xpr_frozen_trunk_private_lora_c2
+  save_every: 1
+  seed: 20260921
+  val_max_samples: 2048
+  weight_decay: 0.0
+  resume: /home/zd25e122/clevr_discrete_diffusion/outputs/mm_xpr_frozen_trunk_private_lora/epoch_001.pt
+wandb:
+  enabled: true
+  entity: zahra-delbari-university-of-bern
+  group: shared_xview_frozen_lora
+  project: Platonic_CLEVR_image_modulewise_jepa_hsic
+  run_name: mm_xpr_frozen_trunk_private_lora_c2
+  tags:
+  - unpaired
+  - both-modalities
+  - dense-private
+  - private-lora-r128
+  - diffusion-only
+  - from-scratch
+  - 2m-text-2_5m-images
+  - separate-corpora
+  - forty-epochs
+  - gradient-balance
+  - private-dropout-0.5

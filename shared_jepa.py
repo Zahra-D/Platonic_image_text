@@ -343,8 +343,15 @@ def data2vec_hidden_loss(
     variance_target: float = 1.0,
     normalize_targets: bool = True,
     stop_gradient: bool = True,
+    global_teacher_hidden_by_layer: dict[int, torch.Tensor] | None = None,
+    global_pool_mask: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """data2vec objective on Transformer hidden states, averaged or layerwise.
+
+    ``global_teacher_hidden_by_layer`` (with ``global_pool_mask``): the pooled (global)
+    target comes from this second teacher pass instead of the token teacher -- e.g. the
+    teacher reading a paraphrase of the student's caption, whose tokens do not align with
+    the student's, so only a pooled target is defined.  The token loss is unchanged.
 
     Both modes normalize every teacher state with a parameter-free LayerNorm
     before it becomes a target, exactly as data2vec does (the paper's ablations
@@ -428,11 +435,24 @@ def data2vec_hidden_loss(
     variance_losses: list[torch.Tensor] = []
     global_cosines: list[float] = []
 
+    def other_target_global(layer: int | None) -> torch.Tensor:
+        """Pooled, normalised target from the second teacher pass at the same depth."""
+        def one(index: int) -> torch.Tensor:
+            hidden = global_teacher_hidden_by_layer[index]
+            hidden = (hidden.detach() if stop_gradient else hidden).float()
+            hidden = F.layer_norm(hidden, (width,)) if normalize_targets else hidden
+            weights = global_pool_mask.to(hidden.dtype).unsqueeze(-1)
+            return (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp_min(1)
+        if layer is None:
+            return torch.stack([one(index) for index in selected], dim=0).mean(dim=0)
+        return one(target_layer if mode == "fixed_target" else layer)
+
     def global_terms(student: torch.Tensor, target: torch.Tensor, layer: int | None) -> None:
         if global_weight == 0 and variance_weight == 0:
             return
         student_global = masked_mean(student)
-        target_global = masked_mean(target)
+        target_global = (masked_mean(target) if global_teacher_hidden_by_layer is None
+                         else other_target_global(layer))
         prediction_global = model.predict_data2vec(student_global, layer=layer)
         if global_weight:
             global_losses.append(F.smooth_l1_loss(

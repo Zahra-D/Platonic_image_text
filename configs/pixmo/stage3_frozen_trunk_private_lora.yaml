@@ -1,0 +1,99 @@
+# PixMo-Cap stage 3: the stage-2 trunk frozen, a fresh rank-128 private LoRA per modality trained with the plain
+# diffusion loss (CLEVR configs/mm_xpr_frozen_trunk_private_lora.yaml). Early stopping on the validation loss.
+alignment:
+  gradient_balance_enabled: false
+  gradient_balance_ema_decay: 0.9
+  gradient_balance_min_weight: 0.25
+  gradient_balance_max_weight: 4.0
+  modality_adversarial_enabled: false
+  modulewise_hsic_enabled: false
+  modulewise_jepa_mode: none
+  objective_gradient_diagnostics_every: 0
+  shared_gradient_diagnostics: false
+  shared_jepa_enabled: false
+  sigreg_enabled: false
+data:
+  balanced_modalities: true
+  caption_field: caption
+  max_text_length: 320
+  text_min_frequency: 5
+  mode: unpaired
+  token_cache_dir: ${PIXMO_DATA}/token_cache
+  train_dir: ${PIXMO_DATA}
+  train_manifest: ${PIXMO_DATA}/images_train.jsonl
+  train_text_manifest: ${PIXMO_DATA}/text_train.jsonl
+  val_dir: ${PIXMO_DATA}
+  val_manifest: ${PIXMO_DATA}/images_val.jsonl
+  val_text_manifest: ${PIXMO_DATA}/text_val.jsonl
+diffusion:
+  eps: 0.001
+  full_mask_probability: 0.0
+  objective: both
+  unweighting: false
+  weight: 1.0
+evaluation:
+  paired_enabled: false
+  selection_metric: marginal_t0.75
+generate:
+  num_samples: 0
+  num_steps: 50
+  reveal_order: confidence
+  temperature: 1.0
+lora:
+  alpha: 128
+  diffusion_private_only: false
+  dropout: 0.0
+  freeze_base: true
+  private_rank: 128
+  rank: 384
+  target_modules:
+  - qkv
+  - out_proj
+  - mlp.0
+  - mlp.3
+  train_mode: dense_private
+  private_dropout: 0.0
+model:
+  d_model: 768
+  dropout: 0.1
+  grid_size:
+  - 16
+  - 16
+  mlp_ratio: 4
+  n_heads: 12
+  n_layers: 12
+  use_modality_embeddings: false
+tokenizer:
+  checkpoint: maskgit-vqgan-imagenet-f16-1024
+  embed_dim: 256
+  num_codes: 1024
+train:
+  amp: bf16
+  batch_size: 256
+  epochs: 60
+  early_stopping_patience: 2
+  early_stopping_min_delta: 0.02
+  eval_every: 1
+  gradient_accumulation_steps: 1
+  log_every: 20
+  lr: 0.0003
+  max_grad_norm: 50.0
+  num_workers: 8
+  output_dir: ${PIXMO_RUNS}/stage3_frozen_trunk_private_lora
+  save_every: 1
+  seed: 20261015
+  val_max_samples: 2048
+  weight_decay: 0.0
+  init_checkpoint: ${PIXMO_RUNS}/stage2_xview_xpara_trunk_jepa/init_trunk.pt
+wandb:
+  enabled: false
+  entity: zahra-delbari-university-of-bern
+  project: platonic_pixmo
+  group: pixmo_three_stage
+  run_name: stage3_frozen_trunk_private_lora
+  tags:
+  - pixmo
+  - unpaired
+  - frozen-trunk
+  - private-lora-r128
+  - diffusion
